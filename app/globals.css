@@ -36,6 +36,30 @@
 
 :root {
   color-scheme: dark;
+  --background: #09090B;
+  --foreground: #FAFAFA;
+  --card: #121215;
+  --card-foreground: #FAFAFA;
+  --popover: #121215;
+  --popover-foreground: #FAFAFA;
+  --primary: #E11D48;
+  --primary-foreground: #FAFAFA;
+  --secondary: #1E1E24;
+  --secondary-foreground: #FAFAFA;
+  --muted: #1A1A20;
+  --muted-foreground: #A1A1AA;
+  --accent: #272730;
+  --accent-foreground: #FAFAFA;
+  --destructive: #EF4444;
+  --border: #1F1F24;
+  --input: #272730;
+  --ring: #E11D48;
+  --airing: #10B981;
+  --upcoming: #F59E0B;
+  --radius: 0.625rem;
+}
+
+[data-theme="classic"] {
   --background: oklch(0.15 0.015 275);
   --foreground: oklch(0.96 0.005 275);
   --card: oklch(0.19 0.018 275);
@@ -56,7 +80,6 @@
   --ring: oklch(0.7 0.19 350);
   --airing: oklch(0.78 0.18 150);
   --upcoming: oklch(0.85 0.17 85);
-  --radius: 0.625rem;
 }
 
 @layer base {

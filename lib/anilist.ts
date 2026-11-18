@@ -88,6 +88,15 @@ export type Viewer = {
   mediaListOptions: { scoreFormat: string | null } | null
 }
 
+export type MediaTag = { id: number; name: string; rank: number; isMediaSpoiler: boolean }
+
+export type MediaReview = {
+  id: number
+  summary: string
+  rating: number
+  user: { name: string; avatar: { medium: string | null } }
+}
+
 export type MediaDetail = MediaCard & {
   title: MediaCard['title'] & { native: string | null }
   bannerImage: string | null
@@ -100,6 +109,8 @@ export type MediaDetail = MediaCard & {
   studios: { edges: { isMain: boolean; node: StudioRef }[] }
   recommendations: { nodes: Recommendation[] }
   externalLinks: ExternalLink[]
+  tags: MediaTag[]
+  reviews: { nodes: MediaReview[] }
   characters: {
     edges: { role: string; node: PersonRef; voiceActors: (PersonRef & { languageV2: string | null })[] }[]
   }
