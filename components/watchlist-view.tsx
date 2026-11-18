@@ -13,11 +13,37 @@ import {
 } from '@/lib/watchlist'
 import { formatEnum } from '@/lib/anilist'
 import { cn } from '@/lib/utils'
-import { ProgressButton, ScoreSelect, StatusSelect } from './watchlist-controls'
+import type { WatchEntry } from '@/lib/watchlist'
+import { ProgressButton, StatusSelect } from './watchlist-controls'
+import { ScorePicker } from './score-picker'
+import { ConnectAniListButton } from './connect-anilist'
+
+type SortKey = 'updated' | 'myScore' | 'communityScore' | 'title' | 'progress'
+
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'updated', label: 'Recently updated' },
+  { value: 'myScore', label: 'My score' },
+  { value: 'communityScore', label: 'AniList score' },
+  { value: 'title', label: 'Title (A–Z)' },
+  { value: 'progress', label: 'Progress' },
+]
+
+const byNullableDesc = (a: number | null, b: number | null) => (b ?? -1) - (a ?? -1)
+
+const SORTERS: Record<SortKey, (a: WatchEntry, b: WatchEntry) => number> = {
+  updated: (a, b) => b.updatedAt - a.updatedAt,
+  myScore: (a, b) => byNullableDesc(a.score, b.score) || b.updatedAt - a.updatedAt,
+  communityScore: (a, b) => byNullableDesc(a.averageScore, b.averageScore) || a.title.localeCompare(b.title),
+  title: (a, b) => a.title.localeCompare(b.title),
+  progress: (a, b) =>
+    byNullableDesc(a.episodes ? a.progress / a.episodes : null, b.episodes ? b.progress / b.episodes : null) ||
+    b.progress - a.progress,
+}
 
 export function WatchlistView() {
   const list = useWatchlist()
   const [filter, setFilter] = useState<WatchStatus | 'ALL'>('ALL')
+  const [sort, setSort] = useState<SortKey>('updated')
   const [message, setMessage] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -35,9 +61,7 @@ export function WatchlistView() {
     }
   }, [list])
 
-  const visible = [...list]
-    .filter((e) => filter === 'ALL' || e.status === filter)
-    .sort((a, b) => b.updatedAt - a.updatedAt)
+  const visible = [...list].filter((e) => filter === 'ALL' || e.status === filter).sort(SORTERS[sort])
 
   const handleExport = () => {
     const blob = new Blob([exportWatchlist()], { type: 'application/json' })
@@ -67,7 +91,8 @@ export function WatchlistView() {
             {list.length} titles · {stats.episodes} episodes watched · mean score {stats.mean}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <ConnectAniListButton variant="inline" />
           <button
             type="button"
             onClick={handleExport}
@@ -105,6 +130,7 @@ export function WatchlistView() {
         </p>
       )}
 
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div role="tablist" aria-label="Filter by status" className="-mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0">
         {[{ value: 'ALL' as const, label: 'All' }, ...WATCH_STATUSES].map((s) => {
           const count = s.value === 'ALL' ? list.length : counts[s.value]
@@ -128,6 +154,21 @@ export function WatchlistView() {
           )
         })}
       </div>
+        <label className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+          Sort by
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="h-8 rounded-lg border border-input bg-card px-2.5 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {visible.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border p-10 text-center">
@@ -143,10 +184,8 @@ export function WatchlistView() {
           {visible.map((entry) => {
             const pct = entry.episodes ? Math.min(100, (entry.progress / entry.episodes) * 100) : 0
             return (
-              <li
-                key={entry.id}
-                className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center"
-              >
+              <li key={entry.id} className="flex flex-col gap-3 rounded-xl border border-border bg-card p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <Link href={`/anime/${entry.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                   {entry.coverImage ? (
                     <img src={entry.coverImage || "/placeholder.svg"} alt="" loading="lazy" className="h-20 w-14 shrink-0 rounded-md object-cover" />
@@ -175,7 +214,6 @@ export function WatchlistView() {
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusSelect entry={entry} />
                   <ProgressButton entry={entry} />
-                  <ScoreSelect entry={entry} />
                   <button
                     type="button"
                     onClick={() => removeFromWatchlist(entry.id)}
@@ -184,6 +222,10 @@ export function WatchlistView() {
                   >
                     <Trash2 className="size-4" />
                   </button>
+                </div>
+                </div>
+                <div className="border-t border-border pt-3">
+                  <ScorePicker entry={entry} communityScore={entry.averageScore} size="sm" />
                 </div>
               </li>
             )

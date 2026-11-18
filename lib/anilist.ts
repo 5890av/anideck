@@ -31,6 +31,63 @@ export type ExternalLink = {
 
 export type PersonRef = { id: number; name: { full: string }; image: { large: string | null } }
 
+export type StudioRef = {
+  id: number
+  name: string
+  isAnimationStudio: boolean
+  siteUrl: string | null
+  favourites: number | null
+}
+
+export type Recommendation = {
+  rating: number | null
+  mediaRecommendation: {
+    id: number
+    title: { romaji: string | null; english: string | null }
+    coverImage: { large: string | null }
+    averageScore: number | null
+    format: string | null
+    episodes: number | null
+  } | null
+}
+
+export type StudioDetail = StudioRef & {
+  media: { pageInfo: { hasNextPage: boolean; total: number | null }; nodes: (MediaCard & { isAdult: boolean })[] }
+}
+
+export type ListActivity = {
+  id: number
+  status: string | null
+  progress: string | null
+  createdAt: number
+  user: { id: number; name: string; avatar: { medium: string | null } } | null
+  media: {
+    id: number
+    title: { romaji: string | null; english: string | null }
+    coverImage: { medium: string | null }
+    format: string | null
+  } | null
+}
+
+export type AniListListStatus = 'CURRENT' | 'PLANNING' | 'COMPLETED' | 'DROPPED' | 'PAUSED' | 'REPEATING'
+
+export type RemoteListEntry = {
+  id: number
+  status: AniListListStatus
+  progress: number | null
+  score: number | null
+  updatedAt: number | null
+  media: MediaCard
+}
+
+export type Viewer = {
+  id: number
+  name: string
+  avatar: { medium: string | null }
+  siteUrl: string | null
+  mediaListOptions: { scoreFormat: string | null } | null
+}
+
 export type MediaDetail = MediaCard & {
   title: MediaCard['title'] & { native: string | null }
   bannerImage: string | null
@@ -40,7 +97,8 @@ export type MediaDetail = MediaCard & {
   popularity: number | null
   source: string | null
   startDate: FuzzyDate
-  studios: { nodes: { id: number; name: string; siteUrl: string | null }[] }
+  studios: { edges: { isMain: boolean; node: StudioRef }[] }
+  recommendations: { nodes: Recommendation[] }
   externalLinks: ExternalLink[]
   characters: {
     edges: { role: string; node: PersonRef; voiceActors: (PersonRef & { languageV2: string | null })[] }[]
@@ -152,7 +210,13 @@ export const MEDIA_DETAIL_QUERY = `
       popularity
       source
       startDate { year month day }
-      studios(isMain: true) { nodes { id name siteUrl } }
+      studios { edges { isMain node { id name isAnimationStudio siteUrl favourites } } }
+      recommendations(sort: RATING_DESC, perPage: 10) {
+        nodes {
+          rating
+          mediaRecommendation { id title { romaji english } coverImage { large } averageScore format episodes }
+        }
+      }
       externalLinks { id url site type icon color language }
       characters(sort: [ROLE, RELEVANCE, ID], perPage: 18) {
         edges {
@@ -239,16 +303,105 @@ export const AIRING_QUERY = `
   }
 `
 
-export async function anilist<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-  const res = await fetch(ANILIST_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query, variables }),
-  })
+export const STUDIO_QUERY = `
+  query Studio($id: Int, $page: Int) {
+    Studio(id: $id) {
+      id
+      name
+      isAnimationStudio
+      siteUrl
+      favourites
+      media(sort: POPULARITY_DESC, page: $page, perPage: 30) {
+        pageInfo { hasNextPage total }
+        nodes { ${MEDIA_CARD} isAdult }
+      }
+    }
+  }
+`
+
+export const COMMUNITY_ACTIVITY_QUERY = `
+  query Activity($page: Int) {
+    Page(page: $page, perPage: 25) {
+      pageInfo { hasNextPage }
+      activities(type: ANIME_LIST, sort: ID_DESC) {
+        ... on ListActivity {
+          id
+          status
+          progress
+          createdAt
+          user { id name avatar { medium } }
+          media { id title { romaji english } coverImage { medium } format }
+        }
+      }
+    }
+  }
+`
+
+export const LIST_COLLECTION_QUERY = `
+  query List($userName: String, $userId: Int) {
+    MediaListCollection(userName: $userName, userId: $userId, type: ANIME) {
+      user { id name avatar { medium } }
+      lists {
+        entries {
+          id
+          status
+          progress
+          score(format: POINT_10_DECIMAL)
+          updatedAt
+          media { ${MEDIA_CARD} }
+        }
+      }
+    }
+  }
+`
+
+export const VIEWER_QUERY = `
+  query Viewer {
+    Viewer { id name avatar { medium } siteUrl mediaListOptions { scoreFormat } }
+  }
+`
+
+export const SAVE_ENTRY_MUTATION = `
+  mutation Save($mediaId: Int, $status: MediaListStatus, $scoreRaw: Int, $progress: Int) {
+    SaveMediaListEntry(mediaId: $mediaId, status: $status, scoreRaw: $scoreRaw, progress: $progress) {
+      id
+      status
+      progress
+      score(format: POINT_10_DECIMAL)
+    }
+  }
+`
+
+export const DELETE_ENTRY_MUTATION = `
+  mutation Delete($id: Int) {
+    DeleteMediaListEntry(id: $id) { deleted }
+  }
+`
+
+export class AniListError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+  }
+}
+
+export async function anilist<T>(
+  query: string,
+  variables: Record<string, unknown> = {},
+  token?: string | null,
+): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  const res = await fetch(ANILIST_URL, { method: 'POST', headers, body: JSON.stringify({ query, variables }) })
   const json = await res.json().catch(() => null)
   if (!res.ok || !json || json.errors) {
     const message = json?.errors?.[0]?.message ?? `AniList request failed (${res.status})`
-    throw new Error(res.status === 429 ? 'AniList rate limit reached. Please wait a minute and retry.' : message)
+    throw new AniListError(
+      res.status === 429 ? 'AniList rate limit reached. Please wait a minute and retry.' : message,
+      res.status,
+    )
   }
   return json.data as T
 }

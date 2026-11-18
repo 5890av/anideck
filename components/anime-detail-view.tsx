@@ -8,6 +8,7 @@ import { AiringCountdown, StatusBadge } from './status-badge'
 import { RichDescription } from './rich-description'
 import { CharacterCard, StaffCard } from './person-card'
 import { WatchlistControls } from './watchlist-controls'
+import { Recommendations } from './recommendations'
 
 export function AnimeDetailView({ id }: { id: number }) {
   const { data, error, isLoading } = useSWR<{ Media: MediaDetail }>([MEDIA_DETAIL_QUERY, { id }])
@@ -24,6 +25,8 @@ export function AnimeDetailView({ id }: { id: number }) {
 
   const title = displayTitle(media.title)
   const streaming = media.externalLinks.filter((l) => l.type === 'STREAMING')
+  const studios = [...media.studios.edges].sort((a, b) => Number(b.isMain) - Number(a.isMain))
+  const mainStudios = studios.filter((s) => s.isMain)
   const facts: [string, string | number | null | undefined][] = [
     ['Format', formatEnum(media.format)],
     ['Episodes', media.episodes],
@@ -69,6 +72,23 @@ export function AnimeDetailView({ id }: { id: number }) {
             <h1 className="text-balance text-2xl font-semibold tracking-tight md:text-4xl">{title}</h1>
             {media.title.native && <p className="mt-1 text-sm text-muted-foreground">{media.title.native}</p>}
           </div>
+          {mainStudios.length > 0 && (
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <Building2 className="size-4 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Studio:</span>
+              {mainStudios.map(({ node }, i) => (
+                <span key={node.id} className="flex items-center gap-2">
+                  {i > 0 && <span className="text-muted-foreground" aria-hidden="true">·</span>}
+                  <Link
+                    href={`/studio/${node.id}`}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                  >
+                    {node.name}
+                  </Link>
+                </span>
+              ))}
+            </p>
+          )}
           {media.status === 'RELEASING' && media.nextAiringEpisode && (
             <div className="inline-flex w-fit items-center gap-2 rounded-lg border border-airing/40 bg-airing/10 px-3 py-2 text-sm text-airing">
               <AiringCountdown next={media.nextAiringEpisode} />
@@ -96,6 +116,8 @@ export function AnimeDetailView({ id }: { id: number }) {
             <RichDescription text={media.description} className="text-sm" />
           </section>
 
+          <Recommendations items={media.recommendations.nodes} />
+
           <section>
             <h2 className="mb-3 text-lg font-semibold">Characters &amp; voice actors</h2>
             {media.characters.edges.length === 0 ? (
@@ -117,16 +139,22 @@ export function AnimeDetailView({ id }: { id: number }) {
           <section>
             <h2 className="mb-3 text-lg font-semibold">Staff</h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {media.studios.nodes.map((studio) => (
-                <div key={`studio-${studio.id}`} className="flex gap-3 rounded-lg border border-border bg-card p-2">
+              {studios.map(({ node: studio, isMain }) => (
+                <Link
+                  key={`studio-${studio.id}`}
+                  href={`/studio/${studio.id}`}
+                  className="group flex gap-3 rounded-lg border border-border bg-card p-2 transition-colors hover:border-primary/50"
+                >
                   <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-md bg-muted">
-                    <Building2 className="size-5 text-muted-foreground" aria-hidden="true" />
+                    <Building2 className="size-5 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
                   </div>
                   <div className="flex min-w-0 flex-col justify-center">
-                    <p className="truncate text-sm font-medium">{studio.name}</p>
-                    <p className="text-xs text-muted-foreground">Animation Studio</p>
+                    <p className="truncate text-sm font-medium group-hover:text-primary">{studio.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {isMain ? 'Main studio' : studio.isAnimationStudio ? 'Animation studio' : 'Producer'}
+                    </p>
                   </div>
-                </div>
+                </Link>
               ))}
               {media.staff.edges.map((edge, i) => (
                 <StaffCard key={`${edge.node.id}-${i}`} staff={edge.node} role={edge.role} />

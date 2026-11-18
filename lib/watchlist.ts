@@ -1,7 +1,8 @@
 'use client'
 
-import { useSyncExternalStore } from 'react'
 import type { MediaCard } from './anilist'
+import { logActivity } from './activity'
+import { createLocalStore } from './local-store'
 
 export type WatchStatus = 'WATCHING' | 'PLANNING' | 'COMPLETED' | 'PAUSED' | 'DROPPED'
 
@@ -13,6 +14,10 @@ export const WATCH_STATUSES: { value: WatchStatus; label: string }[] = [
   { value: 'DROPPED', label: 'Dropped' },
 ]
 
+export function statusLabel(status: WatchStatus) {
+  return WATCH_STATUSES.find((s) => s.value === status)?.label ?? status
+}
+
 export type WatchEntry = {
   id: number
   title: string
@@ -20,52 +25,35 @@ export type WatchEntry = {
   format: string | null
   episodes: number | null
   genres: string[]
+  averageScore: number | null
   status: WatchStatus
   progress: number
   score: number | null
+  remoteId: number | null
   addedAt: number
   updatedAt: number
 }
 
-const STORAGE_KEY = 'anideck:watchlist:v1'
+export type WatchlistChange = { type: 'save'; entry: WatchEntry } | { type: 'delete'; entry: WatchEntry }
+
 const EMPTY: WatchEntry[] = []
-const listeners = new Set<() => void>()
-let cache: WatchEntry[] | null = null
+const changeListeners = new Set<(change: WatchlistChange) => void>()
 
-function read(): WatchEntry[] {
-  if (cache) return cache
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    const parsed = raw ? JSON.parse(raw) : []
-    cache = Array.isArray(parsed) ? parsed.filter(isEntry) : []
-  } catch {
-    cache = []
-  }
-  return cache
+const store = createLocalStore<WatchEntry[]>('anideck:watchlist:v1', EMPTY, (raw) =>
+  Array.isArray(raw) ? raw.filter(isEntry).map(normalize) : EMPTY,
+)
+
+const read = store.get
+const write = store.set
+
+function emit(change: WatchlistChange) {
+  changeListeners.forEach((l) => l(change))
 }
 
-function write(next: WatchEntry[]) {
-  cache = next
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-  } catch {
-    // Storage full or unavailable; keep the in-memory copy so the UI still works.
-  }
-  listeners.forEach((l) => l())
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener)
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === STORAGE_KEY) {
-      cache = null
-      listener()
-    }
-  }
-  window.addEventListener('storage', onStorage)
+export function onWatchlistChange(listener: (change: WatchlistChange) => void) {
+  changeListeners.add(listener)
   return () => {
-    listeners.delete(listener)
-    window.removeEventListener('storage', onStorage)
+    changeListeners.delete(listener)
   }
 }
 
@@ -75,10 +63,15 @@ function isEntry(value: unknown): value is WatchEntry {
   return typeof v.id === 'number' && typeof v.title === 'string' && typeof v.status === 'string'
 }
 
+export function normalizeScore(value: unknown): number | null {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.min(10, Math.max(1, Math.round(n * 2) / 2))
+}
+
 function normalize(value: WatchEntry): WatchEntry {
   const episodes = typeof value.episodes === 'number' && value.episodes > 0 ? value.episodes : null
   const progress = Math.max(0, Math.floor(Number(value.progress) || 0))
-  const score = typeof value.score === 'number' && value.score >= 1 && value.score <= 10 ? value.score : null
   const status = WATCH_STATUSES.some((s) => s.value === value.status) ? value.status : 'PLANNING'
   return {
     id: value.id,
@@ -87,55 +80,111 @@ function normalize(value: WatchEntry): WatchEntry {
     format: typeof value.format === 'string' ? value.format : null,
     episodes,
     genres: Array.isArray(value.genres) ? value.genres.filter((g) => typeof g === 'string').slice(0, 20) : [],
+    averageScore: typeof value.averageScore === 'number' ? value.averageScore : null,
     status,
     progress: episodes ? Math.min(progress, episodes) : progress,
-    score,
+    score: normalizeScore(value.score),
+    remoteId: typeof value.remoteId === 'number' ? value.remoteId : null,
     addedAt: Number(value.addedAt) || Date.now(),
     updatedAt: Number(value.updatedAt) || Date.now(),
   }
 }
 
-export function useWatchlist() {
-  return useSyncExternalStore(subscribe, read, () => EMPTY)
+export function entryFromMedia(
+  media: MediaCard,
+  patch: Partial<Pick<WatchEntry, 'status' | 'progress' | 'score' | 'remoteId' | 'updatedAt'>> = {},
+): WatchEntry {
+  const now = Date.now()
+  return normalize({
+    id: media.id,
+    title: media.title.english || media.title.romaji || 'Untitled',
+    coverImage: media.coverImage.large,
+    format: media.format,
+    episodes: media.episodes,
+    genres: media.genres ?? [],
+    averageScore: media.averageScore,
+    status: 'PLANNING',
+    progress: 0,
+    score: null,
+    remoteId: null,
+    addedAt: now,
+    updatedAt: now,
+    ...patch,
+  })
 }
 
+export const useWatchlist = store.useValue
+
 export function useWatchEntry(id: number) {
-  const list = useWatchlist()
-  return list.find((e) => e.id === id) ?? null
+  return useWatchlist().find((e) => e.id === id) ?? null
+}
+
+export function getWatchEntry(id: number) {
+  return read().find((e) => e.id === id) ?? null
 }
 
 export function addToWatchlist(media: MediaCard, status: WatchStatus = 'PLANNING') {
   const list = read()
   if (list.some((e) => e.id === media.id)) return
-  const now = Date.now()
-  write([
-    normalize({
-      id: media.id,
-      title: media.title.english || media.title.romaji || 'Untitled',
-      coverImage: media.coverImage.large,
-      format: media.format,
-      episodes: media.episodes,
-      genres: media.genres,
-      status,
-      progress: 0,
-      score: null,
-      addedAt: now,
-      updatedAt: now,
-    }),
-    ...list,
-  ])
+  const entry = entryFromMedia(media, { status })
+  write([entry, ...list])
+  logActivity({
+    type: 'ADDED',
+    mediaId: entry.id,
+    title: entry.title,
+    coverImage: entry.coverImage,
+    detail: `Added to ${statusLabel(status)}`,
+  })
+  emit({ type: 'save', entry })
 }
 
 export function updateEntry(id: number, patch: Partial<Omit<WatchEntry, 'id'>>) {
-  write(read().map((e) => (e.id === id ? normalize({ ...e, ...patch, updatedAt: Date.now() }) : e)))
+  const prev = getWatchEntry(id)
+  if (!prev) return
+  const next = normalize({ ...prev, ...patch, updatedAt: Date.now() })
+  write(read().map((e) => (e.id === id ? next : e)))
+
+  const base = { mediaId: id, title: next.title, coverImage: next.coverImage }
+  if (next.status !== prev.status) {
+    logActivity({ ...base, type: 'STATUS', detail: `${statusLabel(prev.status)} → ${statusLabel(next.status)}` })
+  }
+  if (next.progress !== prev.progress) {
+    logActivity({
+      ...base,
+      type: 'PROGRESS',
+      detail: `Watched episode ${next.progress}${next.episodes ? ` of ${next.episodes}` : ''}`,
+    })
+  }
+  if (next.score !== prev.score) {
+    logActivity({
+      ...base,
+      type: 'SCORE',
+      detail: next.score == null ? 'Cleared score' : `Rated ${next.score} / 10`,
+    })
+  }
+  emit({ type: 'save', entry: next })
+}
+
+export function setRemoteId(id: number, remoteId: number | null) {
+  write(read().map((e) => (e.id === id ? { ...e, remoteId } : e)))
 }
 
 export function removeFromWatchlist(id: number) {
+  const entry = getWatchEntry(id)
+  if (!entry) return
   write(read().filter((e) => e.id !== id))
+  logActivity({
+    type: 'REMOVED',
+    mediaId: id,
+    title: entry.title,
+    coverImage: entry.coverImage,
+    detail: 'Removed from watchlist',
+  })
+  emit({ type: 'delete', entry })
 }
 
 export function incrementProgress(id: number) {
-  const entry = read().find((e) => e.id === id)
+  const entry = getWatchEntry(id)
   if (!entry) return
   if (entry.episodes && entry.progress >= entry.episodes) return
   const progress = entry.progress + 1
@@ -146,18 +195,43 @@ export function incrementProgress(id: number) {
   })
 }
 
+/** Bulk merge without emitting sync events; used for backups and AniList imports. */
+export function mergeEntries(entries: WatchEntry[], source: string, mode: 'overwrite' | 'newer' = 'overwrite') {
+  const byId = new Map(read().map((e) => [e.id, e]))
+  let changed = 0
+  for (const incoming of entries.map(normalize)) {
+    const existing = byId.get(incoming.id)
+    if (!existing || mode === 'overwrite' || incoming.updatedAt > existing.updatedAt) {
+      byId.set(incoming.id, existing ? { ...incoming, addedAt: existing.addedAt } : incoming)
+      changed++
+    } else if (incoming.remoteId && !existing.remoteId) {
+      byId.set(incoming.id, { ...existing, remoteId: incoming.remoteId })
+    }
+  }
+  write(Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt))
+  logActivity({
+    type: 'IMPORTED',
+    mediaId: null,
+    title: source,
+    coverImage: null,
+    detail: `Imported ${changed} ${changed === 1 ? 'entry' : 'entries'}`,
+  })
+  return changed
+}
+
 export function exportWatchlist() {
-  return JSON.stringify({ app: 'anideck', version: 1, exportedAt: new Date().toISOString(), entries: read() }, null, 2)
+  return JSON.stringify({ app: 'anideck', version: 2, exportedAt: new Date().toISOString(), entries: read() }, null, 2)
 }
 
 export function importWatchlist(text: string): number {
   const parsed = JSON.parse(text)
   const raw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.entries) ? parsed.entries : null
   if (!raw) throw new Error('This file does not look like an Anideck backup.')
-  const imported = raw.filter(isEntry).map(normalize)
+  const imported = raw.filter(isEntry)
   if (imported.length === 0) throw new Error('No valid watchlist entries were found in this file.')
-  const byId = new Map(read().map((e) => [e.id, e]))
-  imported.forEach((e) => byId.set(e.id, e))
-  write(Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt))
-  return imported.length
+  return mergeEntries(imported, 'Backup file')
+}
+
+export function getAllEntries() {
+  return read()
 }

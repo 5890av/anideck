@@ -2,14 +2,16 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { CalendarDays, Home, Layers, ListChecks, Search } from 'lucide-react'
+import { Activity, CalendarDays, Home, Layers, ListChecks, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWatchlist } from '@/lib/watchlist'
+import { ConnectAniListButton } from './connect-anilist'
 
 const NAV = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/search', label: 'Search', icon: Search },
   { href: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { href: '/activity', label: 'Activity', icon: Activity },
   { href: '/watchlist', label: 'My Watchlist', icon: ListChecks },
 ]
 
@@ -50,6 +52,7 @@ export function SiteHeader() {
             )
           })}
         </nav>
+        <ConnectAniListButton />
       </div>
     </header>
   )

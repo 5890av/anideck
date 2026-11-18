@@ -13,6 +13,7 @@ import {
   type WatchStatus,
 } from '@/lib/watchlist'
 import { cn } from '@/lib/utils'
+import { ScorePicker } from './score-picker'
 
 export function WatchlistControls({ media }: { media: MediaCard }) {
   const entry = useWatchEntry(media.id)
@@ -48,7 +49,6 @@ export function WatchlistControls({ media }: { media: MediaCard }) {
       <div className="flex flex-wrap items-center gap-2">
         <StatusSelect entry={entry} />
         <ProgressButton entry={entry} />
-        <ScoreSelect entry={entry} />
         <button
           type="button"
           onClick={() => removeFromWatchlist(entry.id)}
@@ -58,6 +58,7 @@ export function WatchlistControls({ media }: { media: MediaCard }) {
           <Trash2 className="size-4" />
         </button>
       </div>
+      <ScorePicker entry={entry} communityScore={media.averageScore} />
     </div>
   )
 }
@@ -83,26 +84,6 @@ export function StatusSelect({ entry, className }: { entry: WatchEntry; classNam
         {WATCH_STATUSES.map((s) => (
           <option key={s.value} value={s.value}>
             {s.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  )
-}
-
-export function ScoreSelect({ entry, className }: { entry: WatchEntry; className?: string }) {
-  return (
-    <label className={className}>
-      <span className="sr-only">Your rating</span>
-      <select
-        value={entry.score ?? ''}
-        onChange={(e) => updateEntry(entry.id, { score: e.target.value ? Number(e.target.value) : null })}
-        className={selectClass}
-      >
-        <option value="">Rate…</option>
-        {Array.from({ length: 10 }, (_, i) => 10 - i).map((n) => (
-          <option key={n} value={n}>
-            {n} / 10
           </option>
         ))}
       </select>

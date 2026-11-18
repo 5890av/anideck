@@ -1,9 +1,13 @@
 'use client'
 
+import { useEffect } from 'react'
 import { SWRConfig } from 'swr'
 import { anilist } from '@/lib/anilist'
+import { startAniListSync } from '@/lib/anilist-account'
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  useEffect(() => startAniListSync(), [])
+
   return (
     <SWRConfig
       value={{
