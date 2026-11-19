@@ -493,3 +493,79 @@ export function formatEnum(value: string | null | undefined) {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ')
 }
+export type UserProfile = {
+  id: number
+  name: string
+  about: string | null
+  avatar: { large: string | null; medium: string | null }
+  bannerImage: string | null
+  siteUrl: string | null
+  createdAt: number | null
+  statistics: {
+    anime: {
+      count: number
+      episodesWatched: number
+      minutesWatched: number
+      meanScore: number
+      genres: { genre: string; count: number }[]
+    }
+  }
+  favourites: {
+    anime: {
+      nodes: {
+        id: number
+        title: { romaji: string | null; english: string | null }
+        coverImage: { large: string | null }
+        averageScore: number | null
+      }[]
+    }
+    characters: {
+      nodes: {
+        id: number
+        name: { full: string }
+        image: { large: string | null }
+      }[]
+    }
+  }
+}
+
+export const USER_PROFILE_QUERY = `
+  query UserProfile($name: String) {
+    User(name: $name) {
+      id
+      name
+      about(asHtml: false)
+      avatar { large medium }
+      bannerImage
+      siteUrl
+      createdAt
+      statistics {
+        anime {
+          count
+          episodesWatched
+          minutesWatched
+          meanScore
+          genres(limit: 6, sort: COUNT_DESC) { genre count }
+        }
+      }
+      favourites {
+        anime(perPage: 12) {
+          nodes {
+            id
+            title { romaji english }
+            coverImage { large }
+            averageScore
+          }
+        }
+        characters(perPage: 12) {
+          nodes {
+            id
+            name { full }
+            image { large }
+          }
+        }
+      }
+    }
+  }
+`
+
