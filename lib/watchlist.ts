@@ -1,237 +1,321 @@
 'use client'
 
-import type { MediaCard } from './anilist'
-import { logActivity } from './activity'
-import { createLocalStore } from './local-store'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import useSWR from 'swr'
+import { ArrowRight, ChevronLeft, ChevronRight, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
+import { displayTitle, formatEnum, HOME_QUERY, SEARCH_QUERY, type MediaCard } from '@/lib/anilist'
+import { incrementProgress, useWatchlist } from '@/lib/watchlist'
+import { AnimeGrid, SectionHeading } from './anime-grid'
+import { GenreBar } from './genre-bar'
 
-export type WatchStatus = 'WATCHING' | 'PLANNING' | 'COMPLETED' | 'PAUSED' | 'DROPPED'
+type HomeData = Record<'trending' | 'airing' | 'upcoming', { media: MediaCard[] }>
 
-export const WATCH_STATUSES: { value: WatchStatus; label: string }[] = [
-  { value: 'WATCHING', label: 'Watching' },
-  { value: 'PLANNING', label: 'Plan to watch' },
-  { value: 'COMPLETED', label: 'Completed' },
-  { value: 'PAUSED', label: 'Paused' },
-  { value: 'DROPPED', label: 'Dropped' },
-]
+const AUTO_SCROLL_MS = 4000
 
-export function statusLabel(status: WatchStatus) {
-  return WATCH_STATUSES.find((s) => s.value === status)?.label ?? status
-}
+export function HomeView() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const params = useSearchParams()
+  const genre = params.get('genre')
 
-export type WatchEntry = {
-  id: number
-  title: string
-  coverImage: string | null
-  format: string | null
-  episodes: number | null
-  genres: string[]
-  averageScore: number | null
-  status: WatchStatus
-  progress: number
-  score: number | null
-  remoteId: number | null
-  addedAt: number
-  updatedAt: number
-}
+  const watchlist = useWatchlist()
+  const continueWatching = watchlist
+    .filter((e) => e.status === 'WATCHING')
+    .sort((a, b) => b.updatedAt - a.updatedAt)
 
-export type WatchlistChange = { type: 'save'; entry: WatchEntry } | { type: 'delete'; entry: WatchEntry }
+  const home = useSWR<HomeData>(genre ? null : [HOME_QUERY, {}])
+  const byGenre = useSWR<{ Page: { media: MediaCard[] } }>(
+    genre ? [SEARCH_QUERY, { genre, sort: ['SCORE_DESC'], page: 1 }] : null,
+  )
 
-const EMPTY: WatchEntry[] = []
-const changeListeners = new Set<(change: WatchlistChange) => void>()
+  const featuredList = (home.data?.trending.media ?? []).slice(0, 6)
+  const [activeIndex, setActiveIndex] = useState(0)
 
-const store = createLocalStore<WatchEntry[]>('anideck:watchlist:v1', EMPTY, (raw) =>
-  Array.isArray(raw) ? raw.filter(isEntry).map(normalize) : EMPTY,
-)
+  useEffect(() => {
+    if (featuredList.length <= 1 || genre) return
+    const timer = window.setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % featuredList.length)
+    }, AUTO_SCROLL_MS)
+    return () => window.clearInterval(timer)
+  }, [featuredList.length, genre, activeIndex])
 
-const read = store.get
-const write = store.set
+  const safeIndex = featuredList.length > 0 ? activeIndex % featuredList.length : 0
+  const spotlight = featuredList[safeIndex]
 
-function emit(change: WatchlistChange) {
-  changeListeners.forEach((l) => l(change))
-}
-
-export function onWatchlistChange(listener: (change: WatchlistChange) => void) {
-  changeListeners.add(listener)
-  return () => {
-    changeListeners.delete(listener)
+  const selectGenre = (g: string | null) => {
+    router.replace(g ? `${pathname}?genre=${encodeURIComponent(g)}` : pathname, { scroll: false })
   }
-}
 
-function isEntry(value: unknown): value is WatchEntry {
-  if (!value || typeof value !== 'object') return false
-  const v = value as Record<string, unknown>
-  return typeof v.id === 'number' && typeof v.title === 'string' && typeof v.status === 'string'
-}
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-5">
+        {!genre && (
+          home.isLoading && !spotlight ? (
+            <div className="h-64 animate-pulse rounded-2xl border border-border bg-card md:h-72" />
+          ) : spotlight ? (
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+              {/* Blurred Ambient Background */}
+              {spotlight.coverImage.large && (
+                <img
+                  key={`bg-${spotlight.id}`}
+                  src={spotlight.coverImage.large}
+                  alt=""
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-25 blur-2xl transition-opacity duration-500"
+                />
+              )}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/90 to-background/40"
+              />
 
-export function normalizeScore(value: unknown): number | null {
-  const n = Number(value)
-  if (!Number.isFinite(n) || n <= 0) return null
-  return Math.min(10, Math.max(1, Math.round(n * 2) / 2))
-}
+              <div
+                key={`slide-${spotlight.id}`}
+                className="relative flex flex-col gap-5 p-5 animate-in fade-in duration-500 sm:flex-row sm:items-center md:gap-7 md:p-7"
+              >
+                {/* Poster Thumbnail */}
+                <Link
+                  href={`/anime/${spotlight.id}`}
+                  className="group relative mx-auto aspect-[2/3] w-32 shrink-0 overflow-hidden rounded-xl border border-border/80 bg-muted shadow-lg sm:mx-0 sm:w-36 md:w-44"
+                >
+                  <img
+                    src={spotlight.coverImage.large || '/placeholder.svg'}
+                    alt={displayTitle(spotlight.title)}
+                    className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                </Link>
 
-function normalize(value: WatchEntry): WatchEntry {
-  const episodes = typeof value.episodes === 'number' && value.episodes > 0 ? value.episodes : null
-  const progress = Math.max(0, Math.floor(Number(value.progress) || 0))
-  const status = WATCH_STATUSES.some((s) => s.value === value.status) ? value.status : 'PLANNING'
-  return {
-    id: value.id,
-    title: String(value.title).slice(0, 300),
-    coverImage: typeof value.coverImage === 'string' ? value.coverImage : null,
-    format: typeof value.format === 'string' ? value.format : null,
-    episodes,
-    genres: Array.isArray(value.genres) ? value.genres.filter((g) => typeof g === 'string').slice(0, 20) : [],
-    averageScore: typeof value.averageScore === 'number' ? value.averageScore : null,
-    status,
-    progress: episodes ? Math.min(progress, episodes) : progress,
-    score: normalizeScore(value.score),
-    remoteId: typeof value.remoteId === 'number' ? value.remoteId : null,
-    addedAt: Number(value.addedAt) || Date.now(),
-    updatedAt: Number(value.updatedAt) || Date.now(),
-  }
-}
+                {/* Spotlight Details */}
+                <div className="flex min-w-0 flex-1 flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
+                      <Flame className="size-3.5" aria-hidden="true" /> #{safeIndex + 1} Trending
+                    </span>
+                    {spotlight.averageScore && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/80 px-2.5 py-0.5 text-xs font-semibold text-upcoming">
+                        <Star className="size-3 fill-upcoming text-upcoming" aria-hidden="true" />
+                        {spotlight.averageScore}%
+                      </span>
+                    )}
+                    {spotlight.nextAiringEpisode && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-airing/30 bg-airing/15 px-2.5 py-0.5 text-xs font-medium text-airing">
+                        <Tv className="size-3" aria-hidden="true" />
+                        Ep {spotlight.nextAiringEpisode.episode} airing soon
+                      </span>
+                    )}
+                  </div>
 
-export function entryFromMedia(
-  media: MediaCard,
-  patch: Partial<Pick<WatchEntry, 'status' | 'progress' | 'score' | 'remoteId' | 'updatedAt'>> = {},
-): WatchEntry {
-  const now = Date.now()
-  return normalize({
-    id: media.id,
-    title: media.title.english || media.title.romaji || 'Untitled',
-    coverImage: media.coverImage.large,
-    format: media.format,
-    episodes: media.episodes,
-    genres: media.genres ?? [],
-    averageScore: media.averageScore,
-    status: 'PLANNING',
-    progress: 0,
-    score: null,
-    remoteId: null,
-    addedAt: now,
-    updatedAt: now,
-    ...patch,
-  })
-}
+                  <Link href={`/anime/${spotlight.id}`} className="group w-fit">
+                    <h1 className="line-clamp-2 text-balance text-2xl font-bold tracking-tight transition-colors group-hover:text-primary md:text-3xl">
+                      {displayTitle(spotlight.title)}
+                    </h1>
+                  </Link>
 
-export const useWatchlist = store.useValue
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {spotlight.format && <span>{formatEnum(spotlight.format)}</span>}
+                    {spotlight.seasonYear && <span>• {spotlight.seasonYear}</span>}
+                    {spotlight.episodes && <span>• {spotlight.episodes} episodes</span>}
+                    {spotlight.status && <span>• {formatEnum(spotlight.status)}</span>}
+                  </div>
 
-export function useWatchEntry(id: number) {
-  return useWatchlist().find((e) => e.id === id) ?? null
-}
+                  {spotlight.genres.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {spotlight.genres.slice(0, 4).map((g) => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => selectGenre(g)}
+                          className="rounded-md border border-border bg-secondary/70 px-2.5 py-0.5 text-xs font-medium text-foreground/90 transition-colors hover:border-primary/50 hover:text-primary"
+                        >
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
-export function getWatchEntry(id: number) {
-  return read().find((e) => e.id === id) ?? null
-}
+                  {/* Actions & Carousel Controls */}
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-2.5">
+                      <Link
+                        href={`/anime/${spotlight.id}`}
+                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+                      >
+                        <Play className="size-3.5 fill-current" aria-hidden="true" />
+                        View Details
+                      </Link>
+                      <Link
+                        href="/calendar"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-secondary/70 px-3.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
+                      >
+                        <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
+                        Schedule
+                      </Link>
+                    </div>
 
-export function addToWatchlist(media: MediaCard, status: WatchStatus = 'PLANNING') {
-  const list = read()
-  if (list.some((e) => e.id === media.id)) return
-  const entry = entryFromMedia(media, { status })
-  write([entry, ...list])
-  logActivity({
-    type: 'ADDED',
-    mediaId: entry.id,
-    title: entry.title,
-    coverImage: entry.coverImage,
-    detail: `Added to ${statusLabel(status)}`,
-  })
-  emit({ type: 'save', entry })
-}
+                    {featuredList.length > 1 && (
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {featuredList.map((item, idx) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setActiveIndex(idx)}
+                              aria-label={`Show featured anime ${idx + 1}`}
+                              className={`h-2 rounded-full transition-all ${
+                                idx === safeIndex ? 'w-6 bg-primary' : 'w-2 bg-muted-foreground/40 hover:bg-muted-foreground'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                        <div className="ml-1 flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setActiveIndex((prev) => (prev - 1 + featuredList.length) % featuredList.length)
+                            }
+                            aria-label="Previous featured anime"
+                            className="flex size-8 items-center justify-center rounded-lg border border-border bg-secondary/80 text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                          >
+                            <ChevronLeft className="size-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveIndex((prev) => (prev + 1) % featuredList.length)}
+                            aria-label="Next featured anime"
+                            className="flex size-8 items-center justify-center rounded-lg border border-border bg-secondary/80 text-foreground transition-colors hover:border-primary/50 hover:text-primary"
+                          >
+                            <ChevronRight className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-export function updateEntry(id: number, patch: Partial<Omit<WatchEntry, 'id'>>) {
-  const prev = getWatchEntry(id)
-  if (!prev) return
-  const next = normalize({ ...prev, ...patch, updatedAt: Date.now() })
-  write(read().map((e) => (e.id === id ? next : e)))
+              {/* Bottom Auto-Scroll Indicator Bar */}
+              {featuredList.length > 1 && (
+                <div className="relative h-1 w-full bg-secondary/60">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${((safeIndex + 1) / featuredList.length) * 100}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          ) : null
+        )}
 
-  const base = { mediaId: id, title: next.title, coverImage: next.coverImage }
-  if (next.status !== prev.status) {
-    logActivity({ ...base, type: 'STATUS', detail: `${statusLabel(prev.status)} → ${statusLabel(next.status)}` })
-  }
-  if (next.progress !== prev.progress) {
-    logActivity({
-      ...base,
-      type: 'PROGRESS',
-      detail: `Watched episode ${next.progress}${next.episodes ? ` of ${next.episodes}` : ''}`,
-    })
-  }
-  if (next.score !== prev.score) {
-    logActivity({
-      ...base,
-      type: 'SCORE',
-      detail: next.score == null ? 'Cleared score' : `Rated ${next.score} / 10`,
-    })
-  }
-  emit({ type: 'save', entry: next })
-}
+        <GenreBar selected={genre} onSelect={selectGenre} />
+      </section>
 
-export function setRemoteId(id: number, remoteId: number | null) {
-  write(read().map((e) => (e.id === id ? { ...e, remoteId } : e)))
-}
+      {/* Continue Watching Section */}
+      {!genre && continueWatching.length > 0 && (
+        <section>
+          <SectionHeading title={`Continue watching (${continueWatching.length})`}>
+            <Link href="/watchlist" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
+              Full watchlist <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
+          </SectionHeading>
+          <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+            <div className="flex gap-3 pb-2">
+              {continueWatching.map((entry) => {
+                const pct = entry.episodes ? Math.min(100, Math.round((entry.progress / entry.episodes) * 100)) : null
+                const canIncrement = !entry.episodes || entry.progress < entry.episodes
 
-export function removeFromWatchlist(id: number) {
-  const entry = getWatchEntry(id)
-  if (!entry) return
-  write(read().filter((e) => e.id !== id))
-  logActivity({
-    type: 'REMOVED',
-    mediaId: id,
-    title: entry.title,
-    coverImage: entry.coverImage,
-    detail: 'Removed from watchlist',
-  })
-  emit({ type: 'delete', entry })
-}
+                return (
+                  <div
+                    key={entry.id}
+                    className="flex w-64 shrink-0 items-center gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40 sm:w-72"
+                  >
+                    <Link
+                      href={`/anime/${entry.id}`}
+                      className="h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-muted"
+                    >
+                      <img
+                        src={entry.coverImage || '/placeholder.svg'}
+                        alt={entry.title}
+                        className="size-full object-cover"
+                        loading="lazy"
+                      />
+                    </Link>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                      <Link
+                        href={`/anime/${entry.id}`}
+                        className="line-clamp-2 text-xs font-semibold leading-snug hover:text-primary"
+                      >
+                        {entry.title}
+                      </Link>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                          Ep {entry.progress}
+                          {entry.episodes ? ` / ${entry.episodes}` : ''}
+                        </span>
+                        {canIncrement && (
+                          <button
+                            type="button"
+                            onClick={() => incrementProgress(entry.id)}
+                            aria-label={`Increment episode for ${entry.title}`}
+                            className="inline-flex h-6 items-center gap-0.5 rounded-md bg-primary/15 px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                          >
+                            <Plus className="size-3" aria-hidden="true" />1 Ep
+                          </button>
+                        )}
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                        <div
+                          className="h-full rounded-full bg-primary transition-all duration-300"
+                          style={{ width: `${pct ?? (entry.progress > 0 ? 45 : 8)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
-export function incrementProgress(id: number) {
-  const entry = getWatchEntry(id)
-  if (!entry) return
-  if (entry.episodes && entry.progress >= entry.episodes) return
-  const progress = entry.progress + 1
-  const finished = entry.episodes !== null && progress >= entry.episodes
-  updateEntry(id, {
-    progress,
-    status: finished ? 'COMPLETED' : entry.status === 'COMPLETED' ? 'COMPLETED' : 'WATCHING',
-  })
-}
-
-/** Bulk merge without emitting sync events; used for backups and AniList imports. */
-export function mergeEntries(entries: WatchEntry[], source: string, mode: 'overwrite' | 'newer' = 'overwrite') {
-  const byId = new Map(read().map((e) => [e.id, e]))
-  let changed = 0
-  for (const incoming of entries.map(normalize)) {
-    const existing = byId.get(incoming.id)
-    if (!existing || mode === 'overwrite' || incoming.updatedAt > existing.updatedAt) {
-      byId.set(incoming.id, existing ? { ...incoming, addedAt: existing.addedAt } : incoming)
-      changed++
-    } else if (incoming.remoteId && !existing.remoteId) {
-      byId.set(incoming.id, { ...existing, remoteId: incoming.remoteId })
-    }
-  }
-  write(Array.from(byId.values()).sort((a, b) => b.updatedAt - a.updatedAt))
-  logActivity({
-    type: 'IMPORTED',
-    mediaId: null,
-    title: source,
-    coverImage: null,
-    detail: `Imported ${changed} ${changed === 1 ? 'entry' : 'entries'}`,
-  })
-  return changed
-}
-
-export function exportWatchlist() {
-  return JSON.stringify({ app: 'anideck', version: 2, exportedAt: new Date().toISOString(), entries: read() }, null, 2)
-}
-
-export function importWatchlist(text: string): number {
-  const parsed = JSON.parse(text)
-  const raw: unknown[] = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.entries) ? parsed.entries : null
-  if (!raw) throw new Error('This file does not look like an Anideck backup.')
-  const imported = raw.filter(isEntry)
-  if (imported.length === 0) throw new Error('No valid watchlist entries were found in this file.')
-  return mergeEntries(imported, 'Backup file')
-}
-
-export function getAllEntries() {
-  return read()
+      {genre ? (
+        <section aria-live="polite">
+          <SectionHeading title={`Top ${genre} anime`}>
+            <Link
+              href={`/search?genre=${encodeURIComponent(genre)}`}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
+            >
+              Refine in Search <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
+          </SectionHeading>
+          <AnimeGrid
+            items={byGenre.data?.Page.media}
+            loading={byGenre.isLoading}
+            error={byGenre.error}
+            skeletonCount={18}
+          />
+        </section>
+      ) : (
+        <>
+          <section>
+            <SectionHeading title="Trending now" />
+            <AnimeGrid items={home.data?.trending.media} loading={home.isLoading} error={home.error} />
+          </section>
+          <section>
+            <SectionHeading title="Currently airing">
+              <Link href="/calendar" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
+                Weekly calendar <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            </SectionHeading>
+            <AnimeGrid items={home.data?.airing.media} loading={home.isLoading} error={home.error} />
+          </section>
+          <section>
+            <SectionHeading title="Upcoming" />
+            <AnimeGrid items={home.data?.upcoming.media} loading={home.isLoading} error={home.error} />
+          </section>
+        </>
+      )}
+    </div>
+  )
 }
