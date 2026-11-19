@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
-import { ArrowRight, ChevronLeft, ChevronRight, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, Dices, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
 import { displayTitle, formatEnum, HOME_QUERY, SEARCH_QUERY, type MediaCard } from '@/lib/anilist'
 import { incrementProgress, updateEntry, useWatchlist } from '@/lib/watchlist'
 import { AnimeGrid, SectionHeading } from './anime-grid'
@@ -144,7 +144,7 @@ export function HomeView() {
 
                   {/* Actions & Carousel Controls */}
                   <div className="mt-1 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-2.5">
+                    <div className="flex flex-wrap items-center gap-2.5">
                       <Link
                         href={`/anime/${spotlight.id}`}
                         className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
@@ -158,6 +158,13 @@ export function HomeView() {
                       >
                         <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
                         Schedule
+                      </Link>
+                      <Link
+                        href="/roulette"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/15 px-3.5 text-xs font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                      >
+                        <Dices className="size-3.5" aria-hidden="true" />
+                        Mood Spin
                       </Link>
                     </div>
 
