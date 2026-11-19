@@ -55,11 +55,20 @@ export type StudioDetail = StudioRef & {
   media: { pageInfo: { hasNextPage: boolean; total: number | null }; nodes: (MediaCard & { isAdult: boolean })[] }
 }
 
+export type ActivityLikeUser = {
+  id: number
+  name: string
+  avatar: { medium: string | null }
+}
+
 export type ListActivity = {
   id: number
   status: string | null
   progress: string | null
   createdAt: number
+  likeCount: number
+  isLiked: boolean | null
+  likes?: ActivityLikeUser[]
   user: { id: number; name: string; avatar: { medium: string | null } } | null
   media: {
     id: number
@@ -340,6 +349,9 @@ export const COMMUNITY_ACTIVITY_QUERY = `
           status
           progress
           createdAt
+          likeCount
+          isLiked
+          likes { id name avatar { medium } }
           user { id name avatar { medium } }
           media { id title { romaji english } coverImage { medium } format }
         }
@@ -398,13 +410,39 @@ export class AniListError extends Error {
   }
 }
 
+function getBrowserToken(): string | null {
+  if (typeof window === 'undefined') return null
+  const directKeys = ['anilist_token', 'anilist_access_token', 'anideck_anilist_token']
+  for (const key of directKeys) {
+    const val = window.localStorage.getItem(key)
+    if (val && val.length > 20) return val.replace(/^"|"$/g, '')
+  }
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i)
+    if (!key) continue
+    const raw = window.localStorage.getItem(key)
+    if (!raw) continue
+    if (raw.startsWith('{') && raw.includes('token')) {
+      try {
+        const parsed = JSON.parse(raw)
+        const token = parsed?.token || parsed?.accessToken || parsed?.access_token
+        if (typeof token === 'string' && token.length > 20) return token
+      } catch {
+        // ignore invalid JSON
+      }
+    }
+  }
+  return null
+}
+
 export async function anilist<T>(
   query: string,
   variables: Record<string, unknown> = {},
   token?: string | null,
 ): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' }
-  if (token) headers.Authorization = `Bearer ${token}`
+  const authToken = token !== undefined ? token : getBrowserToken()
+  if (authToken) headers.Authorization = `Bearer ${authToken}`
   const res = await fetch(ANILIST_URL, { method: 'POST', headers, body: JSON.stringify({ query, variables }) })
   const json = await res.json().catch(() => null)
   if (!res.ok || !json || json.errors) {
