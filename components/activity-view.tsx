@@ -189,7 +189,6 @@ function CommunityFeed() {
         }))
       }
     } catch {
-      // Revert optimistic state on network failure
       setRemoteOverrides((prev) => ({
         ...prev,
         [activity.id]: { isLiked: currentLiked, likeCount: currentCount },
@@ -231,18 +230,23 @@ function CommunityFeed() {
             const displayCount = override
               ? override.likeCount
               : (a.likeCount ?? 0) + (!a.isLiked && isLocalLiked ? 1 : 0)
+            const userHref = `/user/${encodeURIComponent(a.user!.name)}`
 
             return (
               <li key={a.id} className="flex items-center gap-3 p-3">
-                <img
-                  src={a.user!.avatar.medium || '/placeholder.svg'}
-                  alt=""
-                  className="size-9 shrink-0 rounded-full bg-muted object-cover"
-                  loading="lazy"
-                />
+                <Link href={userHref} className="shrink-0">
+                  <img
+                    src={a.user!.avatar.medium || '/placeholder.svg'}
+                    alt={a.user!.name}
+                    className="size-9 rounded-full bg-muted object-cover transition-opacity hover:opacity-80"
+                    loading="lazy"
+                  />
+                </Link>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm leading-relaxed">
-                    <span className="font-semibold">{a.user!.name}</span>{' '}
+                    <Link href={userHref} className="font-semibold hover:text-primary hover:underline">
+                      {a.user!.name}
+                    </Link>{' '}
                     <span className="text-muted-foreground">
                       {capitalizeStatus(a.status)}
                       {a.progress ? ` ${a.progress} of` : ''}
