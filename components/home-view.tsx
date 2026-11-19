@@ -11,6 +11,8 @@ import { GenreBar } from './genre-bar'
 
 type HomeData = Record<'trending' | 'airing' | 'upcoming', { media: MediaCard[] }>
 
+const AUTO_SCROLL_MS = 4000
+
 export function HomeView() {
   const router = useRouter()
   const pathname = usePathname()
@@ -24,15 +26,14 @@ export function HomeView() {
 
   const featuredList = (home.data?.trending.media ?? []).slice(0, 6)
   const [activeIndex, setActiveIndex] = useState(0)
-  const [paused, setPaused] = useState(false)
 
   useEffect(() => {
-    if (featuredList.length <= 1 || paused || genre) return
+    if (featuredList.length <= 1 || genre) return
     const timer = window.setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % featuredList.length)
-    }, 7000)
+    }, AUTO_SCROLL_MS)
     return () => window.clearInterval(timer)
-  }, [featuredList.length, paused, genre])
+  }, [featuredList.length, genre, activeIndex])
 
   const safeIndex = featuredList.length > 0 ? activeIndex % featuredList.length : 0
   const spotlight = featuredList[safeIndex]
@@ -48,18 +49,15 @@ export function HomeView() {
           home.isLoading && !spotlight ? (
             <div className="h-64 animate-pulse rounded-2xl border border-border bg-card md:h-72" />
           ) : spotlight ? (
-            <div
-              onMouseEnter={() => setPaused(true)}
-              onMouseLeave={() => setPaused(false)}
-              className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
-            >
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
               {/* Blurred Ambient Background */}
               {spotlight.coverImage.large && (
                 <img
+                  key={`bg-${spotlight.id}`}
                   src={spotlight.coverImage.large}
                   alt=""
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-25 blur-2xl"
+                  className="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-25 blur-2xl transition-opacity duration-500"
                 />
               )}
               <div
@@ -67,7 +65,10 @@ export function HomeView() {
                 className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/90 to-background/40"
               />
 
-              <div className="relative flex flex-col gap-5 p-5 sm:flex-row sm:items-center md:gap-7 md:p-7">
+              <div
+                key={`slide-${spotlight.id}`}
+                className="relative flex flex-col gap-5 p-5 animate-in fade-in duration-500 sm:flex-row sm:items-center md:gap-7 md:p-7"
+              >
                 {/* Poster Thumbnail */}
                 <Link
                   href={`/anime/${spotlight.id}`}
@@ -187,6 +188,16 @@ export function HomeView() {
                   </div>
                 </div>
               </div>
+
+              {/* Bottom Auto-Scroll Indicator Bar */}
+              {featuredList.length > 1 && (
+                <div className="relative h-1 w-full bg-secondary/60">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${((safeIndex + 1) / featuredList.length) * 100}%` }}
+                  />
+                </div>
+              )}
             </div>
           ) : null
         )}
