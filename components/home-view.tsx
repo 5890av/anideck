@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
-import { ArrowRight, ChevronLeft, ChevronRight, Flame, Play, Sparkles, Star, Tv } from 'lucide-react'
+import { ArrowRight, ChevronLeft, ChevronRight, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
 import { displayTitle, formatEnum, HOME_QUERY, SEARCH_QUERY, type MediaCard } from '@/lib/anilist'
+import { incrementProgress, updateEntry, useWatchlist } from '@/lib/watchlist'
 import { AnimeGrid, SectionHeading } from './anime-grid'
 import { GenreBar } from './genre-bar'
 
@@ -18,6 +19,18 @@ export function HomeView() {
   const pathname = usePathname()
   const params = useSearchParams()
   const genre = params.get('genre')
+
+  const watchlist = useWatchlist()
+  const watchingList = watchlist
+    .filter((e) => e.status === 'WATCHING')
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+
+  const upNextList = watchingList.length > 0
+    ? watchingList
+    : watchlist
+        .filter((e) => e.status === 'PLANNING' || e.status === 'PAUSED')
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 10)
 
   const home = useSWR<HomeData>(genre ? null : [HOME_QUERY, {}])
   const byGenre = useSWR<{ Page: { media: MediaCard[] } }>(
@@ -204,6 +217,103 @@ export function HomeView() {
 
         <GenreBar selected={genre} onSelect={selectGenre} />
       </section>
+
+      {/* Continue Watching Section */}
+      {!genre && (
+        <section>
+          <SectionHeading
+            title={
+              watchingList.length > 0
+                ? `Continue watching (${watchingList.length})`
+                : upNextList.length > 0
+                  ? 'Up next from your watchlist'
+                  : 'Continue watching'
+            }
+          >
+            <Link href="/watchlist" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
+              Full watchlist <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
+          </SectionHeading>
+
+          {upNextList.length > 0 ? (
+            <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+              <div className="flex gap-3 pb-2">
+                {upNextList.map((entry) => {
+                  const pct = entry.episodes ? Math.min(100, Math.round((entry.progress / entry.episodes) * 100)) : null
+                  const canIncrement = !entry.episodes || entry.progress < entry.episodes
+                  const isWatching = entry.status === 'WATCHING'
+
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex w-64 shrink-0 items-center gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40 sm:w-72"
+                    >
+                      <Link
+                        href={`/anime/${entry.id}`}
+                        className="h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-muted"
+                      >
+                        <img
+                          src={entry.coverImage || '/placeholder.svg'}
+                          alt={entry.title}
+                          className="size-full object-cover"
+                          loading="lazy"
+                        />
+                      </Link>
+                      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                        <Link
+                          href={`/anime/${entry.id}`}
+                          className="line-clamp-2 text-xs font-semibold leading-snug hover:text-primary"
+                        >
+                          {entry.title}
+                        </Link>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                            Ep {entry.progress}
+                            {entry.episodes ? ` / ${entry.episodes}` : ''}
+                          </span>
+                          {isWatching ? (
+                            canIncrement && (
+                              <button
+                                type="button"
+                                onClick={() => incrementProgress(entry.id)}
+                                aria-label={`Increment episode for ${entry.title}`}
+                                className="inline-flex h-6 items-center gap-0.5 rounded-md bg-primary/15 px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                              >
+                                <Plus className="size-3" aria-hidden="true" />1 Ep
+                              </button>
+                            )
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => updateEntry(entry.id, { status: 'WATCHING' })}
+                              className="inline-flex h-6 items-center gap-1 rounded-md bg-primary/15 px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                            >
+                              <Play className="size-2.5 fill-current" aria-hidden="true" /> Watch
+                            </button>
+                          )}
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                          <div
+                            className="h-full rounded-full bg-primary transition-all duration-300"
+                            style={{ width: `${pct ?? (entry.progress > 0 ? 45 : 8)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-xl border border-dashed border-border bg-card/50 px-4 py-3 text-xs text-muted-foreground">
+              <span>No shows marked as Watching yet.</span>
+              <Link href="/watchlist" className="font-semibold text-primary hover:underline">
+                Open Watchlist
+              </Link>
+            </div>
+          )}
+        </section>
+      )}
 
       {genre ? (
         <section aria-live="polite">
