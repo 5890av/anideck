@@ -69,6 +69,7 @@ export function AnimeDetailView({ id }: { id: number }) {
   const [themesDebug, setThemesDebug] = useState<string | undefined>(undefined)
   const [themesLoading, setThemesLoading] = useState(true)
   const [playingTheme, setPlayingTheme] = useState<AnimeThemeItem | null>(null)
+  const [resolvingVideo, setResolvingVideo] = useState(false)
 
   const media = data?.Media
   const queryTitle = media?.title?.romaji || media?.title?.english || ''
@@ -127,12 +128,45 @@ export function AnimeDetailView({ id }: { id: number }) {
     { icon: Flame, label: media.popularity ? `${media.popularity.toLocaleString()} fans` : null },
   ].filter((item) => Boolean(item.label))
 
-  const getPlayerEmbedUrl = (theme: AnimeThemeItem) => {
+  const buildYouTubeUrl = (theme: AnimeThemeItem) => {
     if (theme.youtubeId) {
-      return `https://www.youtube.com/embed/${theme.youtubeId}?autoplay=1&rel=0`
+      return `https://www.youtube.com/watch?v=${theme.youtubeId}`
     }
     const q = [title, theme.slug, theme.songTitle, ...theme.artists].filter(Boolean).join(' ')
-    return `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(q)}&autoplay=1`
+    return `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`
+  }
+
+  const handlePlayTheme = async (theme: AnimeThemeItem) => {
+    if (playingTheme?.id === theme.id) {
+      setPlayingTheme(null)
+      return
+    }
+
+    setPlayingTheme(theme)
+
+    if (theme.videoUrl || theme.youtubeId) return
+
+    setResolvingVideo(true)
+    try {
+      const cleanSong = theme.songTitle.replace(/\([^)]*\)/g, '').trim()
+      const cleanArtist = theme.artists[0]?.replace(/\([^)]*\)/g, '').trim() || ''
+      const playQuery = `${title} ${theme.slug} ${cleanSong} ${cleanArtist} creditless`.trim()
+      const res = await fetch(`/api/themes?playQuery=${encodeURIComponent(playQuery)}`)
+      if (res.ok) {
+        const json = await res.json()
+        const resolvedId: string | null = json?.youtubeId ?? null
+        if (resolvedId) {
+          setThemes((prev) =>
+            prev.map((item) => (item.id === theme.id ? { ...item, youtubeId: resolvedId } : item)),
+          )
+          setPlayingTheme((curr) =>
+            curr?.id === theme.id ? { ...curr, youtubeId: resolvedId } : curr,
+          )
+        }
+      }
+    } finally {
+      setResolvingVideo(false)
+    }
   }
 
   return (
@@ -369,7 +403,7 @@ export function AnimeDetailView({ id }: { id: number }) {
 
       {activeTab === 'themes' && (
         <section className="flex flex-col gap-6 animate-in fade-in duration-300">
-          {/* Inline Cinema Theme Player (plays directly inside the app) */}
+          {/* Inline Cinema Theme Player */}
           {playingTheme && (
             <div className="glass-panel overflow-hidden rounded-3xl border-primary/40 p-4 shadow-2xl">
               <div className="mb-3 flex items-center justify-between gap-3">
@@ -386,14 +420,24 @@ export function AnimeDetailView({ id }: { id: number }) {
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setPlayingTheme(null)}
-                  aria-label="Close theme player"
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-muted-foreground hover:text-white"
-                >
-                  <X className="size-4" />
-                </button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <a
+                    href={buildYouTubeUrl(playingTheme)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3 text-[11px] font-semibold text-white transition-colors hover:border-primary/50 hover:text-primary"
+                  >
+                    YouTube <ExternalLink className="size-3" />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setPlayingTheme(null)}
+                    aria-label="Close theme player"
+                    className="flex size-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-muted-foreground hover:text-white"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
               </div>
 
               {playingTheme.videoUrl ? (
@@ -405,15 +449,33 @@ export function AnimeDetailView({ id }: { id: number }) {
                   playsInline
                   className="aspect-video max-h-96 w-full rounded-2xl bg-black object-contain"
                 />
-              ) : (
+              ) : resolvingVideo ? (
+                <div className="flex aspect-video max-h-96 w-full items-center justify-center rounded-2xl bg-black/80 text-xs text-muted-foreground">
+                  Finding playable stream...
+                </div>
+              ) : playingTheme.youtubeId ? (
                 <iframe
-                  key={playingTheme.id}
-                  src={getPlayerEmbedUrl(playingTheme)}
+                  key={playingTheme.youtubeId}
+                  src={`https://www.youtube.com/embed/${playingTheme.youtubeId}?autoplay=1&rel=0`}
                   title={`${playingTheme.slug} - ${playingTheme.songTitle}`}
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   allowFullScreen
                   className="aspect-video max-h-96 w-full rounded-2xl border-0 bg-black"
                 />
+              ) : (
+                <div className="flex aspect-video max-h-72 w-full flex-col items-center justify-center gap-3 rounded-2xl bg-black/80 p-6 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    Embed restricted by copyright holder. Watch directly on YouTube:
+                  </p>
+                  <a
+                    href={buildYouTubeUrl(playingTheme)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-bold text-white active-pill"
+                  >
+                    <Play className="size-3.5 fill-current" /> Open on YouTube
+                  </a>
+                </div>
               )}
             </div>
           )}
@@ -469,7 +531,7 @@ export function AnimeDetailView({ id }: { id: number }) {
                           </div>
                           <button
                             type="button"
-                            onClick={() => setPlayingTheme(isPlaying ? null : op)}
+                            onClick={() => handlePlayTheme(op)}
                             className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
                           >
                             <Play className="size-3 fill-current" />
@@ -519,7 +581,7 @@ export function AnimeDetailView({ id }: { id: number }) {
                           </div>
                           <button
                             type="button"
-                            onClick={() => setPlayingTheme(isPlaying ? null : ed)}
+                            onClick={() => handlePlayTheme(ed)}
                             className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
                           >
                             <Play className="size-3 fill-current" />
