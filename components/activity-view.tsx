@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import {
+  Activity as ActivityIcon,
   Download,
   Heart,
   ListPlus,
@@ -11,9 +12,11 @@ import {
   Pencil,
   RefreshCw,
   Send,
+  Sparkles,
   Star,
   Trash2,
   Tv,
+  Users,
   X,
 } from 'lucide-react'
 import { anilist, COMMUNITY_ACTIVITY_QUERY, displayTitle, type ListActivity } from '@/lib/anilist'
@@ -152,8 +155,8 @@ function useLocalLikes() {
 }
 
 const TABS = [
-  { value: 'community', label: 'Community Activity' },
-  { value: 'mine', label: 'My Activity' },
+  { value: 'community', label: 'Community Feed', icon: Users },
+  { value: 'mine', label: 'My History', icon: ActivityIcon },
 ] as const
 
 export function ActivityView() {
@@ -161,29 +164,48 @@ export function ActivityView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Activity</h1>
-        <p className="mt-1 text-sm text-muted-foreground">What the AniList community is watching, and your own history.</p>
+      {/* Editorial Activity Command Header */}
+      <div className="glass-panel flex flex-col gap-4 rounded-3xl p-5 sm:flex-row sm:items-center sm:justify-between md:p-6">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2.5">
+            <span className="h-6 w-1.5 rounded-full active-pill" aria-hidden="true" />
+            <h1 className="text-2xl font-black tracking-tight text-white md:text-3xl">Activity Stream</h1>
+          </div>
+          <p className="text-xs font-medium text-slate-400 sm:text-sm">
+            Live AniList community updates and your personal watch history.
+          </p>
+        </div>
+
+        <div
+          role="tablist"
+          aria-label="Activity feeds"
+          className="flex w-fit gap-1 rounded-full border border-white/12 bg-[#0E1015]/85 p-1"
+        >
+          {TABS.map((t) => {
+            const Icon = t.icon
+            const active = tab === t.value
+            return (
+              <button
+                key={t.value}
+                id={`tab-${t.value}`}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                aria-controls={`panel-${t.value}`}
+                onClick={() => setTab(t.value)}
+                className={cn(
+                  'inline-flex h-8 items-center gap-1.5 rounded-full px-4 text-xs font-extrabold transition-all',
+                  active ? 'active-pill' : 'text-slate-400 hover:text-white',
+                )}
+              >
+                <Icon className="size-3.5" aria-hidden="true" />
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
       </div>
-      <div role="tablist" aria-label="Activity feeds" className="flex w-fit gap-1 rounded-lg border border-border bg-card p-1">
-        {TABS.map((t) => (
-          <button
-            key={t.value}
-            id={`tab-${t.value}`}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.value}
-            aria-controls={`panel-${t.value}`}
-            onClick={() => setTab(t.value)}
-            className={cn(
-              'h-8 rounded-md px-3.5 text-sm font-medium transition-colors',
-              tab === t.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
         {tab === 'community' ? <CommunityFeed /> : <MyFeed />}
       </div>
@@ -280,26 +302,30 @@ function CommunityFeed() {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">Live public list updates · refreshes every minute</p>
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
+          <span className="size-2 rounded-full bg-airing animate-pulse" aria-hidden="true" />
+          Live public list updates · refreshes every minute
+        </span>
         <button
           type="button"
           onClick={() => mutate()}
-          className="flex h-8 items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-accent"
+          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-white/12 bg-[#161922]/85 px-3.5 text-xs font-bold text-slate-200 transition-colors hover:border-primary/45 hover:text-primary"
         >
           <RefreshCw className={cn('size-3.5', isValidating && 'animate-spin')} aria-hidden="true" />
           Refresh
         </button>
       </div>
+
       {error && !data ? (
-        <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+        <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
           {error.message}
         </p>
       ) : isLoading ? (
         <FeedSkeleton />
       ) : (
-        <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        <ul className="grid gap-3 md:grid-cols-2">
           {items.map((a) => {
             const override = remoteOverrides[a.id]
             const isLocalLiked = Boolean(likedIds[`community:${a.id}`])
@@ -311,30 +337,40 @@ function CommunityFeed() {
             const userHref = `/user/${encodeURIComponent(a.user!.name)}`
 
             return (
-              <li key={a.id} className="flex items-center gap-3 p-3">
+              <li
+                key={a.id}
+                className="glass-card flex items-center gap-3.5 rounded-3xl border-white/10 p-3.5"
+              >
                 <Link href={userHref} className="shrink-0">
                   <img
                     src={a.user!.avatar.medium || '/placeholder.svg'}
                     alt={a.user!.name}
-                    className="size-9 rounded-full bg-muted object-cover transition-opacity hover:opacity-80"
+                    className="size-10 rounded-full border border-primary/35 bg-muted object-cover transition-transform hover:scale-105"
                     loading="lazy"
                   />
                 </Link>
+
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm leading-relaxed">
-                    <Link href={userHref} className="font-semibold hover:text-primary hover:underline">
+                  <p className="text-xs leading-relaxed text-slate-200 sm:text-sm">
+                    <Link href={userHref} className="font-extrabold text-white hover:text-primary">
                       {a.user!.name}
                     </Link>{' '}
-                    <span className="text-muted-foreground">
+                    <span className="text-slate-400">
                       {capitalizeStatus(a.status)}
                       {a.progress ? ` ${a.progress} of` : ''}
                     </span>{' '}
-                    <Link href={`/anime/${a.media!.id}`} className="font-medium text-primary hover:underline">
+                    <Link
+                      href={`/anime/${a.media!.id}`}
+                      className="font-bold text-primary hover:underline"
+                    >
                       {displayTitle(a.media!.title)}
                     </Link>
                   </p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
-                    <span className="text-xs text-muted-foreground">{timeAgo(a.createdAt * 1000)}</span>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="text-[11px] font-medium text-slate-400">
+                      {timeAgo(a.createdAt * 1000)}
+                    </span>
 
                     <button
                       type="button"
@@ -344,13 +380,13 @@ function CommunityFeed() {
                       aria-label={isLiked ? 'Unlike activity' : 'Like activity'}
                       title={getStoredAniListToken() ? 'Like on AniList' : 'Like (saved locally)'}
                       className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors',
+                        'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold transition-all',
                         isLiked
-                          ? 'border-primary/40 bg-primary/15 text-primary'
-                          : 'border-border bg-secondary/50 text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                          ? 'active-pill'
+                          : 'border border-white/10 bg-[#0E1015]/75 text-slate-300 hover:border-primary/45 hover:text-white',
                       )}
                     >
-                      <Heart className={cn('size-3', isLiked && 'fill-primary text-primary')} aria-hidden="true" />
+                      <Heart className={cn('size-3', isLiked && 'fill-current')} aria-hidden="true" />
                       {displayCount > 0 && <span className="tabular-nums">{displayCount}</span>}
                     </button>
 
@@ -359,10 +395,10 @@ function CommunityFeed() {
                       onClick={() => setActiveDrawerActivity(a)}
                       aria-label="Open replies"
                       className={cn(
-                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors',
+                        'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold transition-all',
                         replyCount > 0
-                          ? 'border-border bg-secondary/80 text-foreground hover:border-primary/40 hover:text-primary'
-                          : 'border-border bg-secondary/50 text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                          ? 'amber-pill'
+                          : 'border border-white/10 bg-[#0E1015]/75 text-slate-300 hover:border-primary/45 hover:text-white',
                       )}
                     >
                       <MessageCircle className="size-3" aria-hidden="true" />
@@ -370,11 +406,17 @@ function CommunityFeed() {
                     </button>
                   </div>
                 </div>
-                <Link href={`/anime/${a.media!.id}`} className="shrink-0" tabIndex={-1} aria-hidden="true">
+
+                <Link
+                  href={`/anime/${a.media!.id}`}
+                  className="shrink-0 overflow-hidden rounded-xl border border-white/10"
+                  tabIndex={-1}
+                  aria-hidden="true"
+                >
                   <img
                     src={a.media!.coverImage.medium || '/placeholder.svg'}
                     alt=""
-                    className="h-14 w-10 rounded object-cover"
+                    className="h-16 w-11 object-cover transition-transform duration-300 hover:scale-105"
                     loading="lazy"
                   />
                 </Link>
@@ -455,18 +497,19 @@ function ReplyDrawer({
       role="dialog"
       aria-modal="true"
       aria-label="Activity replies"
-      className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex justify-end bg-black/75 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="flex h-full w-full max-w-md flex-col border-l border-border bg-background shadow-2xl"
+        className="flex h-full w-full max-w-md flex-col border-l border-white/10 bg-[#0E1015] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-4 py-3.5">
+        <div className="flex items-center justify-between border-b border-white/10 bg-[#161922]/85 px-4 py-3.5">
           <div className="flex items-center gap-2">
+            <span className="h-4 w-1 rounded-full active-pill" aria-hidden="true" />
             <MessageCircle className="size-4 text-primary" />
-            <h2 className="text-sm font-semibold">
+            <h2 className="text-sm font-extrabold text-white">
               Replies {replies.length > 0 ? `(${replies.length})` : ''}
             </h2>
           </div>
@@ -474,7 +517,7 @@ function ReplyDrawer({
             type="button"
             onClick={onClose}
             aria-label="Close replies"
-            className="flex size-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:text-foreground"
+            className="flex size-8 items-center justify-center rounded-full border border-white/12 bg-[#0E1015] text-slate-300 hover:text-white"
           >
             <X className="size-4" />
           </button>
@@ -482,34 +525,34 @@ function ReplyDrawer({
 
         {/* Original Activity Context */}
         {activity.user && activity.media && (
-          <div className="flex items-center gap-3 border-b border-border bg-card/70 p-4">
+          <div className="flex items-center gap-3 border-b border-white/10 bg-[#161922]/50 p-4">
             <Link href={`/user/${encodeURIComponent(activity.user.name)}`} onClick={onClose} className="shrink-0">
               <img
                 src={activity.user.avatar.medium || '/placeholder.svg'}
                 alt={activity.user.name}
-                className="size-9 rounded-full bg-muted object-cover"
+                className="size-10 rounded-full border border-primary/35 bg-muted object-cover"
               />
             </Link>
             <div className="min-w-0 flex-1 text-xs leading-relaxed">
               <Link
                 href={`/user/${encodeURIComponent(activity.user.name)}`}
                 onClick={onClose}
-                className="font-semibold hover:text-primary"
+                className="font-extrabold text-white hover:text-primary"
               >
                 {activity.user.name}
               </Link>{' '}
-              <span className="text-muted-foreground">
+              <span className="text-slate-400">
                 {capitalizeStatus(activity.status)}
                 {activity.progress ? ` ${activity.progress} of` : ''}
               </span>{' '}
               <Link
                 href={`/anime/${activity.media.id}`}
                 onClick={onClose}
-                className="font-medium text-primary hover:underline"
+                className="font-bold text-primary hover:underline"
               >
                 {displayTitle(activity.media.title)}
               </Link>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{timeAgo(activity.createdAt * 1000)}</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">{timeAgo(activity.createdAt * 1000)}</p>
             </div>
           </div>
         )}
@@ -519,22 +562,22 @@ function ReplyDrawer({
           {isLoading ? (
             <div className="flex flex-col gap-3">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-16 animate-pulse rounded-xl bg-muted" />
+                <div key={i} className="h-16 animate-pulse rounded-2xl bg-muted" />
               ))}
             </div>
           ) : error ? (
-            <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+            <p className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
               {error.message}
             </p>
           ) : replies.length === 0 ? (
             <div className="flex h-40 flex-col items-center justify-center text-center">
-              <MessageCircle className="size-7 text-muted-foreground/40" />
-              <p className="mt-2 text-xs text-muted-foreground">No replies yet. Start the conversation!</p>
+              <MessageCircle className="size-7 text-slate-600" />
+              <p className="mt-2 text-xs text-slate-400">No replies yet. Start the conversation!</p>
             </div>
           ) : (
             <ul className="flex flex-col gap-3">
               {replies.map((r) => (
-                <li key={r.id} className="flex gap-2.5 rounded-xl border border-border bg-card p-3">
+                <li key={r.id} className="glass-panel flex gap-2.5 rounded-2xl p-3">
                   {r.user ? (
                     <Link
                       href={`/user/${encodeURIComponent(r.user.name)}`}
@@ -556,18 +599,18 @@ function ReplyDrawer({
                         <Link
                           href={`/user/${encodeURIComponent(r.user.name)}`}
                           onClick={onClose}
-                          className="truncate text-xs font-semibold hover:text-primary"
+                          className="truncate text-xs font-extrabold text-white hover:text-primary"
                         >
                           {r.user.name}
                         </Link>
                       ) : (
-                        <span className="text-xs font-semibold">AniList User</span>
+                        <span className="text-xs font-bold text-white">AniList User</span>
                       )}
-                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                      <span className="shrink-0 text-[11px] text-slate-400">
                         {timeAgo(r.createdAt * 1000)}
                       </span>
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-foreground/90">
+                    <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-200">
                       {r.text}
                     </p>
                   </div>
@@ -578,7 +621,7 @@ function ReplyDrawer({
         </div>
 
         {/* Compose Footer */}
-        <div className="border-t border-border bg-card p-3.5">
+        <div className="border-t border-white/10 bg-[#161922]/90 p-3.5">
           {submitError && <p className="mb-2 text-xs text-destructive">{submitError}</p>}
           {token ? (
             <form onSubmit={handleSubmit} className="flex items-center gap-2">
@@ -588,19 +631,19 @@ function ReplyDrawer({
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder="Write a reply on AniList..."
                 maxLength={1000}
-                className="h-9 flex-1 rounded-lg border border-border bg-background px-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+                className="h-10 flex-1 rounded-full border border-white/12 bg-[#0E1015] px-4 text-xs text-white placeholder:text-slate-400 focus:border-primary focus:outline-none"
               />
               <button
                 type="submit"
                 disabled={!replyText.trim() || submitting}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+                className="inline-flex h-10 items-center gap-1.5 rounded-full px-4 text-xs font-extrabold active-pill transition-transform hover:scale-105 disabled:opacity-40"
               >
                 <Send className="size-3.5" />
                 {submitting ? 'Sending' : 'Send'}
               </button>
             </form>
           ) : (
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <div className="flex items-center justify-between text-xs text-slate-400">
               <span>Connect AniList in the top bar to post replies.</span>
             </div>
           )}
@@ -624,12 +667,12 @@ const ICONS: Record<ActivityType, typeof Tv> = {
 }
 
 const ICON_TONE: Record<ActivityType, string> = {
-  ADDED: 'bg-primary/15 text-primary',
-  PROGRESS: 'bg-airing/15 text-airing',
-  STATUS: 'bg-accent text-foreground',
-  SCORE: 'bg-upcoming/15 text-upcoming',
-  REMOVED: 'bg-destructive/15 text-destructive',
-  IMPORTED: 'bg-accent text-foreground',
+  ADDED: 'bg-[#FF6B4A]/20 text-primary',
+  PROGRESS: 'bg-airing/20 text-airing',
+  STATUS: 'bg-white/10 text-white',
+  SCORE: 'bg-[#FFB84D]/20 text-upcoming',
+  REMOVED: 'bg-destructive/20 text-destructive',
+  IMPORTED: 'bg-white/10 text-white',
 }
 
 function MyFeed() {
@@ -638,12 +681,15 @@ function MyFeed() {
 
   if (log.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border p-10 text-center">
-        <p className="text-sm text-muted-foreground">
+      <div className="glass-panel rounded-3xl p-12 text-center">
+        <p className="text-sm text-slate-300">
           Nothing logged yet. Add a show, mark an episode, or rate something and it will appear here.
         </p>
-        <Link href="/" className="mt-2 inline-block text-sm font-medium text-primary hover:underline">
-          Browse anime
+        <Link
+          href="/"
+          className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full px-5 text-xs font-extrabold active-pill"
+        >
+          <Sparkles className="size-3.5" /> Browse Anime
         </Link>
       </div>
     )
@@ -660,39 +706,48 @@ function MyFeed() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">{log.length} events stored on this device</p>
+        <p className="text-xs font-semibold text-slate-400">{log.length} events stored on this device</p>
         <button
           type="button"
           onClick={() => {
             if (window.confirm('Clear your activity history? Your watchlist is not affected.')) clearActivityLog()
           }}
-          className="h-8 rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+          className="rounded-full border border-white/10 bg-[#161922]/85 px-3.5 py-1.5 text-xs font-bold text-slate-300 transition-colors hover:border-destructive/50 hover:bg-destructive/15 hover:text-destructive"
         >
-          Clear history
+          Clear History
         </button>
       </div>
+
       {groups.map((g) => (
-        <section key={g.label} aria-label={g.label} className="flex flex-col gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{g.label}</h2>
-          <ol className="flex flex-col gap-2">
+        <section key={g.label} aria-label={g.label} className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <span className="h-4 w-1 rounded-full active-pill" aria-hidden="true" />
+            <h2 className="text-xs font-extrabold uppercase tracking-widest text-slate-300">{g.label}</h2>
+          </div>
+          <ol className="flex flex-col gap-2.5">
             {g.items.map((item) => {
               const Icon = ICONS[item.type]
               const isLiked = Boolean(likedIds[`mine:${item.id}`])
               const info = (
                 <>
-                  <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-full', ICON_TONE[item.type])}>
+                  <span
+                    className={cn(
+                      'flex size-10 shrink-0 items-center justify-center rounded-2xl',
+                      ICON_TONE[item.type],
+                    )}
+                  >
                     <Icon className="size-4" aria-hidden="true" />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium">{item.title}</span>
-                    <span className="text-xs text-muted-foreground">{item.detail}</span>
+                    <span className="truncate text-sm font-bold text-white">{item.title}</span>
+                    <span className="text-xs font-medium text-slate-400">{item.detail}</span>
                   </span>
                 </>
               )
               return (
                 <li
                   key={item.id}
-                  className="flex items-center gap-3 rounded-lg border border-border bg-card p-2.5 transition-colors hover:border-primary/50"
+                  className="glass-card flex items-center gap-3 rounded-2xl p-3"
                 >
                   {item.mediaId ? (
                     <Link href={`/anime/${item.mediaId}`} className="flex min-w-0 flex-1 items-center gap-3">
@@ -703,7 +758,7 @@ function MyFeed() {
                   )}
                   <time
                     dateTime={new Date(item.at).toISOString()}
-                    className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums"
+                    className="shrink-0 font-mono text-xs font-semibold text-slate-400 tabular-nums"
                   >
                     {new Date(item.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                   </time>
@@ -713,13 +768,13 @@ function MyFeed() {
                     aria-pressed={isLiked}
                     aria-label={isLiked ? 'Unlike event' : 'Like event'}
                     className={cn(
-                      'inline-flex size-7 shrink-0 items-center justify-center rounded-full border transition-colors',
+                      'inline-flex size-8 shrink-0 items-center justify-center rounded-full transition-all',
                       isLiked
-                        ? 'border-primary/40 bg-primary/15 text-primary'
-                        : 'border-border bg-secondary/50 text-muted-foreground hover:border-primary/40 hover:text-foreground',
+                        ? 'active-pill'
+                        : 'border border-white/10 bg-[#0E1015]/75 text-slate-300 hover:border-primary/45 hover:text-white',
                     )}
                   >
-                    <Heart className={cn('size-3.5', isLiked && 'fill-primary text-primary')} aria-hidden="true" />
+                    <Heart className={cn('size-3.5', isLiked && 'fill-current')} aria-hidden="true" />
                   </button>
                 </li>
               )
@@ -733,9 +788,9 @@ function MyFeed() {
 
 function FeedSkeleton() {
   return (
-    <div className="flex flex-col gap-2" aria-busy="true">
+    <div className="grid gap-3 md:grid-cols-2" aria-busy="true">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="h-16 animate-pulse rounded-lg bg-muted" />
+        <div key={i} className="h-24 animate-pulse rounded-3xl border border-white/10 bg-[#161922]/70" />
       ))}
     </div>
   )
