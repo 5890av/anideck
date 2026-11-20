@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import {
@@ -12,10 +12,14 @@ import {
   ExternalLink,
   Film,
   Flame,
+  Music,
+  Play,
   PlayCircle,
   Sparkles,
   Star,
   Users,
+  Volume2,
+  X,
 } from 'lucide-react'
 import { displayTitle, formatEnum, formatFuzzyDate, MEDIA_DETAIL_QUERY, type MediaDetail } from '@/lib/anilist'
 import { cn } from '@/lib/utils'
@@ -25,11 +29,76 @@ import { CharacterCard, StaffCard } from './person-card'
 import { WatchlistControls } from './watchlist-controls'
 import { Recommendations } from './recommendations'
 
-type DetailTab = 'overview' | 'cast' | 'staff'
+type DetailTab = 'overview' | 'themes' | 'cast' | 'staff'
+
+type AnimeThemeItem = {
+  id: number
+  type: 'OP' | 'ED'
+  sequence: number | null
+  slug: string
+  songTitle: string
+  artists: string[]
+  episodes: string | null
+  videoUrl: string | null
+}
+
+async function fetchAnimeThemes(anilistId: number): Promise<AnimeThemeItem[]> {
+  const url = `https://api.animethemes.moe/anime?filter[has]=resources&filter[site]=AniList&filter[external_id]=${anilistId}&include=animethemes.song.artists,animethemes.animethemeentries.videos`
+  const res = await fetch(url, { headers: { Accept: 'application/json' } })
+  if (!res.ok) return []
+  const json = await res.json()
+  const anime = Array.isArray(json?.anime) ? json.anime[0] : null
+  if (!anime?.animethemes) return []
+
+  return anime.animethemes.map((theme: Record<string, unknown>) => {
+    const song = (theme.song as Record<string, unknown>) ?? {}
+    const artistsArr = Array.isArray(song.artists) ? song.artists : []
+    const entries = Array.isArray(theme.animethemeentries) ? theme.animethemeentries : []
+    const firstEntry = (entries[0] as Record<string, unknown>) ?? {}
+    const videos = Array.isArray(firstEntry.videos) ? firstEntry.videos : []
+    const firstVideo = (videos[0] as Record<string, unknown>) ?? {}
+
+    return {
+      id: Number(theme.id),
+      type: theme.type === 'ED' ? 'ED' : 'OP',
+      sequence: typeof theme.sequence === 'number' ? theme.sequence : null,
+      slug: String(theme.slug || theme.type || 'OP'),
+      songTitle: typeof song.title === 'string' && song.title ? song.title : 'Untitled Theme',
+      artists: artistsArr
+        .map((a: Record<string, unknown>) => (typeof a.name === 'string' ? a.name : ''))
+        .filter(Boolean),
+      episodes: typeof firstEntry.episodes === 'string' && firstEntry.episodes ? firstEntry.episodes : null,
+      videoUrl: typeof firstVideo.link === 'string' ? firstVideo.link : null,
+    }
+  })
+}
 
 export function AnimeDetailView({ id }: { id: number }) {
   const { data, error, isLoading } = useSWR<{ Media: MediaDetail }>([MEDIA_DETAIL_QUERY, { id }])
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
+  const [themes, setThemes] = useState<AnimeThemeItem[]>([])
+  const [themesLoading, setThemesLoading] = useState(false)
+  const [playingTheme, setPlayingTheme] = useState<AnimeThemeItem | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setThemesLoading(true)
+    setPlayingTheme(null)
+    fetchAnimeThemes(id)
+      .then((items) => {
+        if (!cancelled) setThemes(items)
+      })
+      .catch(() => {
+        if (!cancelled) setThemes([])
+      })
+      .finally(() => {
+        if (!cancelled) setThemesLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
   const media = data?.Media
 
   if (error && !media) {
@@ -46,6 +115,9 @@ export function AnimeDetailView({ id }: { id: number }) {
   const studios = [...media.studios.edges].sort((a, b) => Number(b.isMain) - Number(a.isMain))
   const mainStudios = studios.filter((s) => s.isMain)
   const heroBackdrop = media.bannerImage || media.coverImage.large
+
+  const openings = themes.filter((t) => t.type === 'OP')
+  const endings = themes.filter((t) => t.type === 'ED')
 
   const statPills = [
     { icon: Film, label: formatEnum(media.format) },
@@ -205,10 +277,15 @@ export function AnimeDetailView({ id }: { id: number }) {
 
       {/* Interactive Stage Switcher Tabs */}
       <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-3">
-        <div className="flex items-center gap-1.5 rounded-full border border-white/10 bg-[#121215]/80 p-1">
+        <div className="no-scrollbar flex max-w-full items-center gap-1.5 overflow-x-auto rounded-full border border-white/10 bg-[#121215]/80 p-1">
           {(
             [
               { id: 'overview', label: 'Overview', icon: Sparkles },
+              {
+                id: 'themes',
+                label: themes.length > 0 ? `OP / ED (${themes.length})` : 'OP / ED',
+                icon: Music,
+              },
               { id: 'cast', label: `Cast (${media.characters.edges.length})`, icon: Users },
               { id: 'staff', label: `Staff (${media.staff.edges.length})`, icon: Building2 },
             ] as const
@@ -221,7 +298,7 @@ export function AnimeDetailView({ id }: { id: number }) {
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all',
+                  'inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all',
                   active
                     ? 'bg-primary text-primary-foreground active-pill'
                     : 'text-muted-foreground hover:bg-white/[0.05] hover:text-white',
@@ -280,6 +357,164 @@ export function AnimeDetailView({ id }: { id: number }) {
 
           <Recommendations items={media.recommendations.nodes} />
         </div>
+      )}
+
+      {activeTab === 'themes' && (
+        <section className="flex flex-col gap-6 animate-in fade-in duration-300">
+          {/* Inline Cinema Theme Player */}
+          {playingTheme && playingTheme.videoUrl && (
+            <div className="glass-panel overflow-hidden rounded-3xl border-primary/40 p-4 shadow-2xl">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-extrabold text-white active-pill">
+                    {playingTheme.slug}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-white">{playingTheme.songTitle}</p>
+                    {playingTheme.artists.length > 0 && (
+                      <p className="truncate text-xs text-muted-foreground">
+                        by {playingTheme.artists.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPlayingTheme(null)}
+                  aria-label="Close theme player"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.05] text-muted-foreground hover:text-white"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <video
+                key={playingTheme.videoUrl}
+                src={playingTheme.videoUrl}
+                controls
+                autoPlay
+                playsInline
+                className="aspect-video max-h-96 w-full rounded-2xl bg-black object-contain"
+              />
+            </div>
+          )}
+
+          {themesLoading ? (
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="h-44 animate-pulse rounded-3xl border border-white/10 bg-card" />
+              <div className="h-44 animate-pulse rounded-3xl border border-white/10 bg-card" />
+            </div>
+          ) : themes.length === 0 ? (
+            <div className="glass-panel rounded-3xl p-8 text-center text-sm text-muted-foreground">
+              No opening or ending theme songs indexed yet for this title.
+            </div>
+          ) : (
+            <div className="grid gap-6 md:grid-cols-2">
+              {/* Openings Column */}
+              <div className="glass-panel flex flex-col gap-3 rounded-3xl p-5">
+                <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+                  <Volume2 className="size-4" /> Openings ({openings.length})
+                </h3>
+                {openings.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No opening themes listed.</p>
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    {openings.map((op) => {
+                      const isPlaying = playingTheme?.id === op.id
+                      return (
+                        <div
+                          key={op.id}
+                          className={cn(
+                            'glass-card flex items-center justify-between gap-3 rounded-2xl p-3',
+                            isPlaying && 'border-primary bg-primary/15',
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-md bg-primary/20 px-2 py-0.5 font-mono text-[11px] font-bold text-primary">
+                                {op.slug}
+                              </span>
+                              {op.episodes && (
+                                <span className="text-[11px] text-muted-foreground">Eps {op.episodes}</span>
+                              )}
+                            </div>
+                            <p className="mt-1 truncate text-xs font-bold text-white">{op.songTitle}</p>
+                            {op.artists.length > 0 && (
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {op.artists.join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          {op.videoUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setPlayingTheme(isPlaying ? null : op)}
+                              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
+                            >
+                              <Play className="size-3 fill-current" />
+                              {isPlaying ? 'Playing' : 'Preview'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Endings Column */}
+              <div className="glass-panel flex flex-col gap-3 rounded-3xl p-5">
+                <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-primary">
+                  <Music className="size-4" /> Endings ({endings.length})
+                </h3>
+                {endings.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No ending themes listed.</p>
+                ) : (
+                  <div className="flex flex-col gap-2.5">
+                    {endings.map((ed) => {
+                      const isPlaying = playingTheme?.id === ed.id
+                      return (
+                        <div
+                          key={ed.id}
+                          className={cn(
+                            'glass-card flex items-center justify-between gap-3 rounded-2xl p-3',
+                            isPlaying && 'border-primary bg-primary/15',
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-md border border-white/15 bg-white/[0.06] px-2 py-0.5 font-mono text-[11px] font-bold text-foreground">
+                                {ed.slug}
+                              </span>
+                              {ed.episodes && (
+                                <span className="text-[11px] text-muted-foreground">Eps {ed.episodes}</span>
+                              )}
+                            </div>
+                            <p className="mt-1 truncate text-xs font-bold text-white">{ed.songTitle}</p>
+                            {ed.artists.length > 0 && (
+                              <p className="truncate text-[11px] text-muted-foreground">
+                                {ed.artists.join(', ')}
+                              </p>
+                            )}
+                          </div>
+                          {ed.videoUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setPlayingTheme(isPlaying ? null : ed)}
+                              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
+                            >
+                              <Play className="size-3 fill-current" />
+                              {isPlaying ? 'Playing' : 'Preview'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
       )}
 
       {activeTab === 'cast' && (
