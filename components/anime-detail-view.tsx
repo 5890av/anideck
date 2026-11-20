@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import {
@@ -81,26 +81,10 @@ async function fetchTimed(url: string, init?: RequestInit, ms = 6000) {
   }
 }
 
-async function loadThemesForAnime(key: [string, number, string]): Promise<AnimeThemeItem[]> {
-  const [, anilistId, searchTitle] = key
-
-  // 1. Try server route /api/themes first (gives AnimeThemes video previews)
-  try {
-    const params = new URLSearchParams({ id: String(anilistId) })
-    if (searchTitle) params.set('title', searchTitle)
-    const res = await fetchTimed(`/api/themes?${params.toString()}`, undefined, 4500)
-    if (res.ok) {
-      const json = await res.json()
-      if (Array.isArray(json?.themes) && json.themes.length > 0) {
-        return json.themes
-      }
-    }
-  } catch {
-    // Fall through to direct browser fetch
-  }
-
-  // 2. Direct browser fetch: get idMal directly from AniList GraphQL
+async function fetchThemesDirectly(anilistId: number): Promise<AnimeThemeItem[]> {
+  // 1. Resolve exact MyAnimeList ID (idMal) from AniList GraphQL
   let malId: number | null = null
+  let fallbackTitle = ''
   try {
     const gqlRes = await fetchTimed(
       'https://graphql.anilist.co',
@@ -108,7 +92,7 @@ async function loadThemesForAnime(key: [string, number, string]): Promise<AnimeT
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
-          query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal } }',
+          query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal title { romaji english } } }',
           variables: { id: anilistId },
         }),
       },
@@ -116,17 +100,19 @@ async function loadThemesForAnime(key: [string, number, string]): Promise<AnimeT
     )
     if (gqlRes.ok) {
       const gqlJson = await gqlRes.json()
-      malId = gqlJson?.data?.Media?.idMal ?? null
+      const m = gqlJson?.data?.Media
+      malId = m?.idMal ?? null
+      fallbackTitle = m?.title?.romaji || m?.title?.english || ''
     }
   } catch {
-    // Fall through to Jikan title search
+    // Fall through to title search
   }
 
-  // 3. Fallback title search on Jikan if idMal wasn't returned
-  if (!malId && searchTitle) {
+  // 2. Fallback MAL search by title if idMal was null
+  if (!malId && fallbackTitle) {
     try {
       const searchRes = await fetchTimed(
-        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
+        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(fallbackTitle)}&limit=1`,
         undefined,
         5000,
       )
@@ -139,7 +125,7 @@ async function loadThemesForAnime(key: [string, number, string]): Promise<AnimeT
     }
   }
 
-  // 4. Fetch themes directly from Jikan in the browser
+  // 3. Fetch full OP/ED list directly from MyAnimeList (Jikan)
   if (malId) {
     try {
       const jikanRes = await fetchTimed(`https://api.jikan.moe/v4/anime/${malId}/themes`, undefined, 6000)
@@ -163,16 +149,30 @@ async function loadThemesForAnime(key: [string, number, string]): Promise<AnimeT
 export function AnimeDetailView({ id }: { id: number }) {
   const { data, error, isLoading } = useSWR<{ Media: MediaDetail }>([MEDIA_DETAIL_QUERY, { id }])
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
+  const [themes, setThemes] = useState<AnimeThemeItem[]>([])
+  const [themesLoading, setThemesLoading] = useState(true)
   const [playingTheme, setPlayingTheme] = useState<AnimeThemeItem | null>(null)
 
-  const media = data?.Media
-  const resolvedTitle = media ? displayTitle(media.title) : ''
+  useEffect(() => {
+    let active = true
+    setThemesLoading(true)
+    setThemes([])
+    setPlayingTheme(null)
 
-  const { data: themes = [], isLoading: themesLoading } = useSWR<AnimeThemeItem[]>(
-    media ? ['anime-themes-v2', id, resolvedTitle] : null,
-    (key: [string, number, string]) => loadThemesForAnime(key),
-    { revalidateOnFocus: false, shouldRetryOnError: false },
-  )
+    fetchThemesDirectly(id)
+      .then((items) => {
+        if (active) setThemes(items)
+      })
+      .finally(() => {
+        if (active) setThemesLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [id])
+
+  const media = data?.Media
 
   if (error && !media) {
     return (
