@@ -41,44 +41,16 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
-function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeThemeItem {
-  const cleaned = raw.replace(/^\d+:\s*/, '').trim()
-  const epMatch = cleaned.match(/\(([^)]+)\)\s*$/)
-  const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '') : null
-  const withoutEp = epMatch ? cleaned.slice(0, epMatch.index).trim() : cleaned
-
-  const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
-  if (titleMatch) {
-    return {
-      id: `jikan-${type}-${idx}`,
-      type,
-      slug: `${type}${idx + 1}`,
-      songTitle: titleMatch[1].trim(),
-      artists: titleMatch[2] ? [titleMatch[2].trim()] : [],
-      episodes,
-      videoUrl: null,
-    }
-  }
-
-  return {
-    id: `jikan-${type}-${idx}`,
-    type,
-    slug: `${type}${idx + 1}`,
-    songTitle: withoutEp || `${type} ${idx + 1}`,
-    artists: [],
-    episodes,
-    videoUrl: null,
-  }
-}
-
-async function fetchThemesDirectly(anilistId: number): Promise<{ themes: AnimeThemeItem[]; debug?: string }> {
+async function fetchThemesFromAnimeThemes(
+  anilistId: number,
+): Promise<{ themes: AnimeThemeItem[]; debug?: string }> {
   try {
-    // 1. Get exact MAL ID (idMal) from AniList GraphQL
+    // 1. Get Romaji / English title & seasonYear from AniList GraphQL (confirmed working on your device)
     const gqlRes = await fetch('https://graphql.anilist.co', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal title { romaji english } } }',
+        query: 'query ($id: Int) { Media(id: $id, type: ANIME) { seasonYear title { romaji english } } }',
         variables: { id: anilistId },
       }),
     })
@@ -86,36 +58,46 @@ async function fetchThemesDirectly(anilistId: number): Promise<{ themes: AnimeTh
 
     const gqlJson = await gqlRes.json()
     const m = gqlJson?.data?.Media
-    let malId: number | null = m?.idMal ?? null
+    const queryTitle: string = m?.title?.romaji || m?.title?.english || ''
+    const seasonYear: number | null = m?.seasonYear ?? null
+    if (!queryTitle) return { themes: [], debug: 'Title unavailable' }
 
-    if (!malId) {
-      const searchTitle = m?.title?.romaji || m?.title?.english
-      if (searchTitle) {
-        const searchRes = await fetch(
-          `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
-        )
-        if (searchRes.ok) {
-          const searchJson = await searchRes.json()
-          malId = searchJson?.data?.[0]?.mal_id ?? null
-        }
-      }
+    // 2. Query AnimeThemes search API directly in Safari (returns songs + artists + video previews)
+    const atUrl = `https://api.animethemes.moe/anime?q=${encodeURIComponent(queryTitle)}&page[size]=5&include=animethemes.song.artists,animethemes.animethemeentries.videos`
+    const atRes = await fetch(atUrl, { headers: { Accept: 'application/json' } })
+    if (!atRes.ok) return { themes: [], debug: `AnimeThemes HTTP ${atRes.status}` }
+
+    const atJson = await atRes.json()
+    const candidates: any[] = Array.isArray(atJson?.anime) ? atJson.anime : []
+    if (candidates.length === 0) {
+      return { themes: [], debug: `No AnimeThemes match for "${queryTitle}"` }
     }
 
-    if (!malId) return { themes: [], debug: 'No MAL ID found' }
+    // Prefer exact seasonYear match if available, otherwise take top result
+    const bestMatch =
+      (seasonYear ? candidates.find((c) => Number(c?.year) === Number(seasonYear)) : null) || candidates[0]
 
-    // 2. Fetch OP/ED directly from Jikan (MyAnimeList) in the browser
-    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`)
-    if (!res.ok) return { themes: [], debug: `Jikan HTTP ${res.status}` }
+    const rawThemes: any[] = Array.isArray(bestMatch?.animethemes) ? bestMatch.animethemes : []
+    const themes: AnimeThemeItem[] = rawThemes.map((t, i) => {
+      const song = t?.song ?? {}
+      const artistsArr: any[] = Array.isArray(song.artists) ? song.artists : []
+      const entries: any[] = Array.isArray(t?.animethemeentries) ? t.animethemeentries : []
+      const firstEntry = entries[0] ?? {}
+      const videos: any[] = Array.isArray(firstEntry.videos) ? firstEntry.videos : []
+      const firstVideo = videos[0] ?? {}
 
-    const json = await res.json()
-    const ops: string[] = Array.isArray(json?.data?.openings) ? json.data.openings : []
-    const eds: string[] = Array.isArray(json?.data?.endings) ? json.data.endings : []
-    const themes = [
-      ...ops.map((raw, idx) => parseJikanLine(raw, 'OP', idx)),
-      ...eds.map((raw, idx) => parseJikanLine(raw, 'ED', idx)),
-    ]
+      return {
+        id: `at-${t?.id ?? i}`,
+        type: t?.type === 'ED' ? 'ED' : 'OP',
+        slug: String(t?.slug || t?.type || `OP${i + 1}`),
+        songTitle: typeof song.title === 'string' && song.title ? song.title : 'Untitled Theme',
+        artists: artistsArr.map((a) => (typeof a?.name === 'string' ? a.name : '')).filter(Boolean),
+        episodes: typeof firstEntry.episodes === 'string' && firstEntry.episodes ? firstEntry.episodes : null,
+        videoUrl: typeof firstVideo.link === 'string' ? firstVideo.link : null,
+      }
+    })
 
-    return { themes, debug: themes.length === 0 ? 'No themes listed on MAL' : undefined }
+    return { themes, debug: themes.length === 0 ? 'No themes indexed on AnimeThemes' : undefined }
   } catch (err: any) {
     return { themes: [], debug: err?.message || 'Network error' }
   }
@@ -136,7 +118,7 @@ export function AnimeDetailView({ id }: { id: number }) {
     setThemesDebug(undefined)
     setPlayingTheme(null)
 
-    fetchThemesDirectly(id)
+    fetchThemesFromAnimeThemes(id)
       .then((res) => {
         if (active) {
           setThemes(res.themes)
