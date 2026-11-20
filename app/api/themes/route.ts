@@ -1,3 +1,5 @@
+export const runtime = 'edge'
+
 import { NextResponse } from 'next/server'
 
 type ThemeItem = {
@@ -61,7 +63,6 @@ export async function GET(request: Request) {
         query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal title { romaji english } } }',
         variables: { id },
       }),
-      cache: 'no-store',
     })
 
     if (!gqlRes.ok) {
@@ -77,7 +78,7 @@ export async function GET(request: Request) {
       if (title) {
         const searchRes = await fetch(
           `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=1`,
-          { headers: HEADERS, cache: 'no-store' },
+          { headers: HEADERS },
         )
         if (searchRes.ok) {
           const searchJson = await searchRes.json()
@@ -93,7 +94,6 @@ export async function GET(request: Request) {
     // 2. Fetch OP/ED themes from MyAnimeList (Jikan)
     const jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`, {
       headers: HEADERS,
-      cache: 'no-store',
     })
 
     if (!jikanRes.ok) {
