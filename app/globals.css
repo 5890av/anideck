@@ -1,31 +1,31 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #09090B;
-  --color-foreground: #FAFAFA;
-  --color-card: #121215;
-  --color-card-foreground: #FAFAFA;
-  --color-popover: #121215;
-  --color-popover-foreground: #FAFAFA;
-  --color-primary: #E11D48;
-  --color-primary-foreground: #FFF1F2;
-  --color-secondary: #1A1A1F;
-  --color-secondary-foreground: #F4F4F5;
-  --color-muted: #18181B;
-  --color-muted-foreground: #A1A1AA;
-  --color-accent: #27131A;
-  --color-accent-foreground: #FFE4E6;
+  --color-background: #0E1015;
+  --color-foreground: #F8FAFC;
+  --color-card: #161922;
+  --color-card-foreground: #F8FAFC;
+  --color-popover: #181C26;
+  --color-popover-foreground: #F8FAFC;
+  --color-primary: #FF6B4A;
+  --color-primary-foreground: #FFF7ED;
+  --color-secondary: #1E222D;
+  --color-secondary-foreground: #F1F5F9;
+  --color-muted: #1A1D26;
+  --color-muted-foreground: #94A3B8;
+  --color-accent: #2A1D1B;
+  --color-accent-foreground: #FFEDD5;
   --color-destructive: #EF4444;
   --color-destructive-foreground: #FAFAFA;
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-input: rgba(255, 255, 255, 0.1);
-  --color-ring: #E11D48;
+  --color-border: rgba(255, 255, 255, 0.09);
+  --color-input: rgba(255, 255, 255, 0.12);
+  --color-ring: #FF6B4A;
   --color-airing: #10B981;
-  --color-upcoming: #F59E0B;
-  --radius-sm: 0.5rem;
-  --radius-md: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.25rem;
+  --color-upcoming: #FFB84D;
+  --radius-sm: 0.625rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.125rem;
+  --radius-xl: 1.5rem;
 }
 
 @layer base {
@@ -35,52 +35,70 @@
 
   html,
   body {
-    background-color: #09090B;
-    color: #FAFAFA;
+    background-color: #0E1015;
+    color: #F8FAFC;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     scroll-behavior: smooth;
     -webkit-font-smoothing: antialiased;
   }
 }
 
-/* Sleek Glassmorphic Cinema Utilities */
+/* Editorial Gallery & Warm Slate Bento Utilities */
 .glass-nav {
-  background: rgba(9, 9, 11, 0.72);
+  background: rgba(14, 16, 21, 0.78);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .glass-panel {
-  background: rgba(18, 18, 21, 0.55);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(145deg, rgba(26, 30, 41, 0.78) 0%, rgba(20, 23, 32, 0.68) 100%);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 12px 36px -12px rgba(0, 0, 0, 0.65);
 }
 
 .glass-card {
-  background: rgba(18, 18, 21, 0.5);
+  background: linear-gradient(160deg, rgba(26, 30, 41, 0.72) 0%, rgba(19, 22, 30, 0.62) 100%);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
 .glass-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(225, 29, 72, 0.35);
-  box-shadow: 0 14px 32px -10px rgba(0, 0, 0, 0.75), 0 0 18px -4px rgba(225, 29, 72, 0.2);
+  transform: translateY(-3px);
+  border-color: rgba(255, 107, 74, 0.45);
+  box-shadow: 0 18px 36px -12px rgba(0, 0, 0, 0.8), 0 0 22px -4px rgba(255, 107, 74, 0.22);
 }
 
 .active-pill {
-  box-shadow: 0 0 16px rgba(225, 29, 72, 0.45);
+  background: linear-gradient(135deg, #FF6B4A 0%, #FF8E53 100%);
+  color: #FFFFFF;
+  box-shadow: 0 4px 18px rgba(255, 107, 74, 0.42);
+}
+
+.amber-pill {
+  background: linear-gradient(135deg, #FFB84D 0%, #F59E0B 100%);
+  color: #14110F;
+  box-shadow: 0 4px 16px rgba(255, 184, 77, 0.32);
+}
+
+.bento-stat {
+  background: rgba(14, 16, 21, 0.55);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .bg-ambient-red {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 45% at 50% -10%, rgba(225, 29, 72, 0.14) 0%, rgba(9, 9, 11, 0) 70%);
+  background:
+    radial-gradient(ellipse 75% 45% at 25% -8%, rgba(255, 107, 74, 0.14) 0%, rgba(14, 16, 21, 0) 65%),
+    radial-gradient(ellipse 65% 40% at 85% 5%, rgba(255, 184, 77, 0.09) 0%, rgba(14, 16, 21, 0) 60%);
   z-index: 0;
 }
 
