@@ -8,6 +8,7 @@ type ThemeItem = {
   artists: string[]
   episodes: string | null
   videoUrl: string | null
+  youtubeId: string | null
 }
 
 function decodeHtml(str: string): string {
@@ -39,7 +40,7 @@ function parseBlockItems(section: string, type: 'OP' | 'ED'): ThemeItem[] {
     artists.push(decodeHtml(m[1]).replace(/^by\s+/i, '').trim())
   }
   while ((m = epRegex.exec(section)) !== null) {
-    eps.push(decodeHtml(m[1]).replace(/^\(|\)$/g, '').replace(/^eps?\s*/i, '').trim())
+    eps.push(decodeHtml(m[1]).replace(/^\(\vert{}\)$/g, '').replace(/^eps?\s*/i, '').trim())
   }
 
   titles.forEach((rawTitle, idx) => {
@@ -53,6 +54,7 @@ function parseBlockItems(section: string, type: 'OP' | 'ED'): ThemeItem[] {
       artists: artists[idx] ? [artists[idx]] : [],
       episodes: eps[idx] || null,
       videoUrl: null,
+      youtubeId: null,
     })
   })
 
@@ -60,7 +62,6 @@ function parseBlockItems(section: string, type: 'OP' | 'ED'): ThemeItem[] {
 }
 
 function parseMalHtmlThemes(html: string): ThemeItem[] {
-  // Match every js-theme-songs container on the page in order (1st = OP, 2nd = ED)
   const containerRegex = /<div[^>]*class="[^"]*js-theme-songs([^"]*)"[^>]*>/gi
   const matches: { index: number; endOfTag: number; classes: string }[] = []
   let m: RegExpExecArray | null
@@ -84,6 +85,25 @@ function parseMalHtmlThemes(html: string): ThemeItem[] {
   return results
 }
 
+async function resolveYouTubeId(query: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      cache: 'no-store',
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+    const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/)
+    return match ? match[1] : null
+  } catch {
+    return null
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const title = searchParams.get('title')?.trim()
@@ -97,7 +117,7 @@ export async function GET(request: Request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        query: 'query ($search: String) { Media(search: $search, type: ANIME) { idMal } }',
+        query: 'query ($search: String) { Media(search:$search, type: ANIME) { idMal } }',
         variables: { search: title },
       }),
       cache: 'no-store',
@@ -124,7 +144,17 @@ export async function GET(request: Request) {
     }
 
     const html = await malRes.text()
-    const themes = parseMalHtmlThemes(html)
+    const parsedThemes = parseMalHtmlThemes(html)
+
+    // Resolve playable YouTube video IDs in parallel (up to first 12 themes for speed)
+    const themes = await Promise.all(
+      parsedThemes.map(async (item, idx) => {
+        if (idx >= 12) return item
+        const query = `${title} ${item.slug} ${item.songTitle} ${item.artists.join(' ')}`.trim()
+        const youtubeId = await resolveYouTubeId(query)
+        return { ...item, youtubeId }
+      }),
+    )
 
     return NextResponse.json({
       themes,
