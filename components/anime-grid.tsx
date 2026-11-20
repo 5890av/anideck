@@ -16,7 +16,7 @@ export function AnimeGrid({
 }) {
   if (error && !items) {
     return (
-      <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
+      <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
         {error.message}
       </p>
     )
@@ -25,9 +25,10 @@ export function AnimeGrid({
     return (
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6" aria-busy="true">
         {Array.from({ length: skeletonCount }).map((_, i) => (
-          <div key={i} className="flex flex-col gap-2">
-            <div className="aspect-[2/3] animate-pulse rounded-lg bg-muted" />
-            <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+          <div key={i} className="flex flex-col gap-2.5 rounded-3xl border border-white/10 bg-[#161922]/70 p-2.5">
+            <div className="aspect-[2/3] animate-pulse rounded-2xl bg-muted" />
+            <div className="h-3.5 w-4/5 animate-pulse rounded-full bg-muted" />
+            <div className="h-3 w-1/2 animate-pulse rounded-full bg-muted" />
           </div>
         ))}
       </div>
@@ -47,8 +48,13 @@ export function AnimeGrid({
 
 export function SectionHeading({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-4 flex items-end justify-between gap-4">
-      <h2 className="text-balance text-xl font-semibold tracking-tight">{title}</h2>
+    <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-2.5">
+        <span className="h-5 w-1 rounded-full active-pill" aria-hidden="true" />
+        <h2 className="text-balance text-base font-extrabold uppercase tracking-wider text-white sm:text-lg">
+          {title}
+        </h2>
+      </div>
       {children}
     </div>
   )
