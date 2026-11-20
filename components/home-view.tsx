@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
-import { ArrowRight, ChevronLeft, ChevronRight, Dices, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
+import { ArrowRight, Dices, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
 import { displayTitle, formatEnum, HOME_QUERY, SEARCH_QUERY, type MediaCard } from '@/lib/anilist'
 import { incrementProgress, updateEntry, useWatchlist } from '@/lib/watchlist'
+import { cn } from '@/lib/utils'
 import { AnimeGrid, SectionHeading } from './anime-grid'
 import { GenreBar } from './genre-bar'
 
@@ -25,19 +26,20 @@ export function HomeView() {
     .filter((e) => e.status === 'WATCHING')
     .sort((a, b) => b.updatedAt - a.updatedAt)
 
-  const upNextList = watchingList.length > 0
-    ? watchingList
-    : watchlist
-        .filter((e) => e.status === 'PLANNING' || e.status === 'PAUSED')
-        .sort((a, b) => b.updatedAt - a.updatedAt)
-        .slice(0, 10)
+  const upNextList =
+    watchingList.length > 0
+      ? watchingList
+      : watchlist
+          .filter((e) => e.status === 'PLANNING' || e.status === 'PAUSED')
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 10)
 
   const home = useSWR<HomeData>(genre ? null : [HOME_QUERY, {}])
   const byGenre = useSWR<{ Page: { media: MediaCard[] } }>(
     genre ? [SEARCH_QUERY, { genre, sort: ['SCORE_DESC'], page: 1 }] : null,
   )
 
-  const featuredList = (home.data?.trending.media ?? []).slice(0, 6)
+  const featuredList = (home.data?.trending.media ?? []).slice(0, 5)
   const [activeIndex, setActiveIndex] = useState(0)
 
   useEffect(() => {
@@ -60,164 +62,182 @@ export function HomeView() {
       <section className="flex flex-col gap-5">
         {!genre && (
           home.isLoading && !spotlight ? (
-            <div className="h-64 animate-pulse rounded-2xl border border-border bg-card md:h-72" />
+            <div className="h-72 animate-pulse rounded-3xl border border-white/10 bg-card md:h-80" />
           ) : spotlight ? (
-            <div className="relative overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
-              {/* Blurred Ambient Background */}
-              {spotlight.coverImage.large && (
-                <img
-                  key={`bg-${spotlight.id}`}
-                  src={spotlight.coverImage.large}
-                  alt=""
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-25 blur-2xl transition-opacity duration-500"
-                />
-              )}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background via-background/90 to-background/40"
-              />
-
-              <div
-                key={`slide-${spotlight.id}`}
-                className="relative flex flex-col gap-5 p-5 animate-in fade-in duration-500 sm:flex-row sm:items-center md:gap-7 md:p-7"
-              >
-                {/* Poster Thumbnail */}
-                <Link
-                  href={`/anime/${spotlight.id}`}
-                  className="group relative mx-auto aspect-[2/3] w-32 shrink-0 overflow-hidden rounded-xl border border-border/80 bg-muted shadow-lg sm:mx-0 sm:w-36 md:w-44"
-                >
+            <div className="grid gap-4 lg:grid-cols-[1fr_290px]">
+              {/* Main Cinema Hero Card */}
+              <div className="glass-panel relative overflow-hidden rounded-3xl shadow-2xl">
+                {spotlight.coverImage.large && (
                   <img
-                    src={spotlight.coverImage.large || '/placeholder.svg'}
-                    alt={displayTitle(spotlight.title)}
-                    className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    key={`bg-${spotlight.id}`}
+                    src={spotlight.coverImage.large}
+                    alt=""
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-35 blur-2xl transition-opacity duration-500"
                   />
-                </Link>
+                )}
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#09090B] via-[#09090B]/70 to-transparent sm:bg-gradient-to-r sm:from-[#09090B]/95 sm:via-[#09090B]/75 sm:to-transparent"
+                />
 
-                {/* Spotlight Details */}
-                <div className="flex min-w-0 flex-1 flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground">
-                      <Flame className="size-3.5" aria-hidden="true" /> #{safeIndex + 1} Trending
-                    </span>
+                <div
+                  key={`slide-${spotlight.id}`}
+                  className="relative flex h-full flex-col justify-between gap-5 p-5 animate-in fade-in duration-500 sm:flex-row sm:items-center md:p-7"
+                >
+                  {/* Poster */}
+                  <Link
+                    href={`/anime/${spotlight.id}`}
+                    className="group relative mx-auto aspect-[2/3] w-36 shrink-0 overflow-hidden rounded-2xl border border-white/15 bg-muted shadow-2xl sm:mx-0 sm:w-40 md:w-44"
+                  >
+                    <img
+                      src={spotlight.coverImage.large || '/placeholder.svg'}
+                      alt={displayTitle(spotlight.title)}
+                      className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
                     {spotlight.averageScore && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/80 px-2.5 py-0.5 text-xs font-semibold text-upcoming">
-                        <Star className="size-3 fill-upcoming text-upcoming" aria-hidden="true" />
-                        {spotlight.averageScore}%
+                      <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/80 px-2 py-0.5 text-[11px] font-bold text-upcoming backdrop-blur-md">
+                        <Star className="size-3 fill-upcoming text-upcoming" /> {spotlight.averageScore}%
                       </span>
                     )}
-                    {spotlight.nextAiringEpisode && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-airing/30 bg-airing/15 px-2.5 py-0.5 text-xs font-medium text-airing">
-                        <Tv className="size-3" aria-hidden="true" />
-                        Ep {spotlight.nextAiringEpisode.episode} airing soon
-                      </span>
-                    )}
-                  </div>
-
-                  <Link href={`/anime/${spotlight.id}`} className="group w-fit">
-                    <h1 className="line-clamp-2 text-balance text-2xl font-bold tracking-tight transition-colors group-hover:text-primary md:text-3xl">
-                      {displayTitle(spotlight.title)}
-                    </h1>
                   </Link>
 
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    {spotlight.format && <span>{formatEnum(spotlight.format)}</span>}
-                    {spotlight.seasonYear && <span>• {spotlight.seasonYear}</span>}
-                    {spotlight.episodes && <span>• {spotlight.episodes} episodes</span>}
-                    {spotlight.status && <span>• {formatEnum(spotlight.status)}</span>}
-                  </div>
-
-                  {spotlight.genres.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {spotlight.genres.slice(0, 4).map((g) => (
-                        <button
-                          key={g}
-                          type="button"
-                          onClick={() => selectGenre(g)}
-                          className="rounded-md border border-border bg-secondary/70 px-2.5 py-0.5 text-xs font-medium text-foreground/90 transition-colors hover:border-primary/50 hover:text-primary"
-                        >
-                          {g}
-                        </button>
-                      ))}
+                  {/* Metadata & Actions */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-xs font-bold text-primary-foreground active-pill">
+                        <Flame className="size-3.5" aria-hidden="true" /> #{safeIndex + 1} Spotlight
+                      </span>
+                      {spotlight.nextAiringEpisode && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-airing/30 bg-airing/15 px-2.5 py-0.5 text-xs font-medium text-airing">
+                          <Tv className="size-3" aria-hidden="true" />
+                          Ep {spotlight.nextAiringEpisode.episode} soon
+                        </span>
+                      )}
                     </div>
-                  )}
 
-                  {/* Actions & Carousel Controls */}
-                  <div className="mt-1 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex flex-wrap items-center gap-2.5">
+                    <Link href={`/anime/${spotlight.id}`} className="group w-fit">
+                      <h1 className="line-clamp-2 text-balance text-2xl font-extrabold tracking-tight text-white transition-colors group-hover:text-primary md:text-3xl">
+                        {displayTitle(spotlight.title)}
+                      </h1>
+                    </Link>
+
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+                      {spotlight.format && <span>{formatEnum(spotlight.format)}</span>}
+                      {spotlight.seasonYear && <span>• {spotlight.seasonYear}</span>}
+                      {spotlight.episodes && <span>• {spotlight.episodes} eps</span>}
+                      {spotlight.status && <span>• {formatEnum(spotlight.status)}</span>}
+                    </div>
+
+                    {spotlight.genres.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {spotlight.genres.slice(0, 4).map((g) => (
+                          <button
+                            key={g}
+                            type="button"
+                            onClick={() => selectGenre(g)}
+                            className="rounded-full border border-white/10 bg-white/[0.05] px-2.5 py-0.5 text-xs font-medium text-foreground/90 transition-colors hover:border-primary/50 hover:text-primary"
+                          >
+                            {g}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mt-1 flex flex-wrap items-center gap-2.5">
                       <Link
                         href={`/anime/${spotlight.id}`}
-                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+                        className="inline-flex h-9 items-center gap-2 rounded-full bg-primary px-4 text-xs font-bold text-primary-foreground active-pill transition-opacity hover:opacity-90"
                       >
                         <Play className="size-3.5 fill-current" aria-hidden="true" />
-                        View Details
+                        Watch & Details
+                      </Link>
+                      <Link
+                        href="/roulette"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3.5 text-xs font-semibold text-foreground backdrop-blur-md transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <Dices className="size-3.5 text-primary" aria-hidden="true" />
+                        Mood Spin
                       </Link>
                       <Link
                         href="/calendar"
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-secondary/70 px-3.5 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:bg-accent"
+                        className="inline-flex h-9 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3.5 text-xs font-semibold text-foreground backdrop-blur-md transition-colors hover:border-primary/40 hover:text-primary"
                       >
                         <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
                         Schedule
                       </Link>
-                      <Link
-                        href="/roulette"
-                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/15 px-3.5 text-xs font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
-                      >
-                        <Dices className="size-3.5" aria-hidden="true" />
-                        Mood Spin
-                      </Link>
                     </div>
-
-                    {featuredList.length > 1 && (
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-1.5">
-                          {featuredList.map((item, idx) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => setActiveIndex(idx)}
-                              aria-label={`Show featured anime ${idx + 1}`}
-                              className={`h-2 rounded-full transition-all ${
-                                idx === safeIndex ? 'w-6 bg-primary' : 'w-2 bg-muted-foreground/40 hover:bg-muted-foreground'
-                              }`}
-                            />
-                          ))}
-                        </div>
-                        <div className="ml-1 flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setActiveIndex((prev) => (prev - 1 + featuredList.length) % featuredList.length)
-                            }
-                            aria-label="Previous featured anime"
-                            className="flex size-8 items-center justify-center rounded-lg border border-border bg-secondary/80 text-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                          >
-                            <ChevronLeft className="size-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveIndex((prev) => (prev + 1) % featuredList.length)}
-                            aria-label="Next featured anime"
-                            className="flex size-8 items-center justify-center rounded-lg border border-border bg-secondary/80 text-foreground transition-colors hover:border-primary/50 hover:text-primary"
-                          >
-                            <ChevronRight className="size-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 </div>
+
+                {/* Progress Indicator Dots */}
+                {featuredList.length > 1 && (
+                  <div className="relative flex items-center justify-center gap-1.5 pb-3.5">
+                    {featuredList.map((item, idx) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveIndex(idx)}
+                        aria-label={`Show featured anime ${idx + 1}`}
+                        className={cn(
+                          'h-1.5 rounded-full transition-all duration-300',
+                          idx === safeIndex ? 'w-7 bg-primary active-pill' : 'w-1.5 bg-white/25 hover:bg-white/50',
+                        )}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* Bottom Auto-Scroll Indicator Bar */}
-              {featuredList.length > 1 && (
-                <div className="relative h-1 w-full bg-secondary/60">
-                  <div
-                    className="h-full bg-primary transition-all duration-300"
-                    style={{ width: `${((safeIndex + 1) / featuredList.length) * 100}%` }}
-                  />
+              {/* Right-Hand Translucent Quick-Select Dock (Matches Cinema Preview) */}
+              <div className="glass-panel hidden lg:flex flex-col justify-between gap-2 rounded-3xl p-3">
+                <div className="flex items-center justify-between px-2 pt-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    Top Trending
+                  </span>
+                  <span className="text-[11px] font-mono text-primary">
+                    0{safeIndex + 1} / 0{featuredList.length}
+                  </span>
                 </div>
-              )}
+                <div className="flex flex-col gap-1.5">
+                  {featuredList.map((item, idx) => {
+                    const active = idx === safeIndex
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setActiveIndex(idx)}
+                        className={cn(
+                          'flex items-center gap-2.5 rounded-2xl p-2 text-left transition-all',
+                          active
+                            ? 'border border-primary/40 bg-primary/15 shadow-sm'
+                            : 'border border-transparent hover:bg-white/[0.04]',
+                        )}
+                      >
+                        <img
+                          src={item.coverImage.medium || item.coverImage.large || '/placeholder.svg'}
+                          alt=""
+                          className="size-10 shrink-0 rounded-xl object-cover"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p
+                            className={cn(
+                              'truncate text-xs font-semibold',
+                              active ? 'text-white' : 'text-foreground/85',
+                            )}
+                          >
+                            {displayTitle(item.title)}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-muted-foreground">
+                            {item.averageScore ? `★ ${item.averageScore}%` : formatEnum(item.format)}
+                            {item.episodes ? ` · ${item.episodes} eps` : ''}
+                          </p>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           ) : null
         )}
@@ -225,7 +245,7 @@ export function HomeView() {
         <GenreBar selected={genre} onSelect={selectGenre} />
       </section>
 
-      {/* Continue Watching Section */}
+      {/* Glassmorphic Continue Watching Shelf */}
       {!genre && (
         <section>
           <SectionHeading
@@ -237,14 +257,14 @@ export function HomeView() {
                   : 'Continue watching'
             }
           >
-            <Link href="/watchlist" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
-              Full watchlist <ArrowRight className="size-4" aria-hidden="true" />
+            <Link href="/watchlist" className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
+              View all <ArrowRight className="size-3.5" aria-hidden="true" />
             </Link>
           </SectionHeading>
 
           {upNextList.length > 0 ? (
-            <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-              <div className="flex gap-3 pb-2">
+            <div className="no-scrollbar -mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
+              <div className="flex gap-3.5 pb-2">
                 {upNextList.map((entry) => {
                   const pct = entry.episodes ? Math.min(100, Math.round((entry.progress / entry.episodes) * 100)) : null
                   const canIncrement = !entry.episodes || entry.progress < entry.episodes
@@ -253,11 +273,11 @@ export function HomeView() {
                   return (
                     <div
                       key={entry.id}
-                      className="flex w-64 shrink-0 items-center gap-3 rounded-xl border border-border bg-card p-2.5 transition-colors hover:border-primary/40 sm:w-72"
+                      className="glass-card flex w-68 shrink-0 items-center gap-3 rounded-2xl p-2.5 sm:w-72"
                     >
                       <Link
                         href={`/anime/${entry.id}`}
-                        className="h-20 w-14 shrink-0 overflow-hidden rounded-lg bg-muted"
+                        className="h-20 w-14 shrink-0 overflow-hidden rounded-xl bg-muted"
                       >
                         <img
                           src={entry.coverImage || '/placeholder.svg'}
@@ -269,12 +289,12 @@ export function HomeView() {
                       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
                         <Link
                           href={`/anime/${entry.id}`}
-                          className="line-clamp-2 text-xs font-semibold leading-snug hover:text-primary"
+                          className="line-clamp-2 text-xs font-semibold leading-snug text-white hover:text-primary"
                         >
                           {entry.title}
                         </Link>
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                          <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
                             Ep {entry.progress}
                             {entry.episodes ? ` / ${entry.episodes}` : ''}
                           </span>
@@ -284,7 +304,7 @@ export function HomeView() {
                                 type="button"
                                 onClick={() => incrementProgress(entry.id)}
                                 aria-label={`Increment episode for ${entry.title}`}
-                                className="inline-flex h-6 items-center gap-0.5 rounded-md bg-primary/15 px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                                className="inline-flex h-6 items-center gap-0.5 rounded-full bg-primary/20 px-2.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary hover:text-white"
                               >
                                 <Plus className="size-3" aria-hidden="true" />1 Ep
                               </button>
@@ -293,13 +313,13 @@ export function HomeView() {
                             <button
                               type="button"
                               onClick={() => updateEntry(entry.id, { status: 'WATCHING' })}
-                              className="inline-flex h-6 items-center gap-1 rounded-md bg-primary/15 px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground"
+                              className="inline-flex h-6 items-center gap-1 rounded-full bg-primary/20 px-2.5 text-[11px] font-bold text-primary transition-colors hover:bg-primary hover:text-white"
                             >
                               <Play className="size-2.5 fill-current" aria-hidden="true" /> Watch
                             </button>
                           )}
                         </div>
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                           <div
                             className="h-full rounded-full bg-primary transition-all duration-300"
                             style={{ width: `${pct ?? (entry.progress > 0 ? 45 : 8)}%` }}
@@ -312,7 +332,7 @@ export function HomeView() {
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between rounded-xl border border-dashed border-border bg-card/50 px-4 py-3 text-xs text-muted-foreground">
+            <div className="glass-panel flex items-center justify-between rounded-2xl px-4 py-3 text-xs text-muted-foreground">
               <span>No shows marked as Watching yet.</span>
               <Link href="/watchlist" className="font-semibold text-primary hover:underline">
                 Open Watchlist
