@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
-import { Search } from 'lucide-react'
+import { Search, SlidersHorizontal, Sparkles, X } from 'lucide-react'
 import { SEARCH_QUERY, type MediaCard } from '@/lib/anilist'
+import { cn } from '@/lib/utils'
 import { AnimeGrid } from './anime-grid'
 import { GenreBar } from './genre-bar'
 
 const SORTS = [
-  { value: 'SCORE_DESC', label: 'Top rated' },
-  { value: 'POPULARITY_DESC', label: 'Most popular' },
+  { value: 'SCORE_DESC', label: 'Top Rated' },
+  { value: 'POPULARITY_DESC', label: 'Most Popular' },
   { value: 'TRENDING_DESC', label: 'Trending' },
   { value: 'START_DATE_DESC', label: 'Newest' },
 ]
@@ -46,49 +47,107 @@ export function SearchView() {
     { search: q || undefined, genre: genre || undefined, sort: [sort], page: 1 },
   ])
 
+  const availableSorts = q ? [{ value: 'SEARCH_MATCH', label: 'Best Match' }, ...SORTS] : SORTS
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Search anime</h1>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <label className="relative flex-1">
-            <span className="sr-only">Search by title</span>
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <input
-              type="search"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Search by title…"
-              className="h-10 w-full rounded-lg border border-input bg-card pl-9 pr-3 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
-            />
-          </label>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Sort
-            <select
-              value={sort}
-              onChange={(e) => setParams({ sort: e.target.value })}
-              className="h-10 rounded-lg border border-input bg-card px-3 text-sm text-foreground outline-none focus-visible:border-primary"
+      {/* Editorial Search Command Header */}
+      <div className="glass-panel flex flex-col gap-4 rounded-3xl p-5 md:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="h-6 w-1.5 rounded-full active-pill" aria-hidden="true" />
+            <h1 className="text-2xl font-black tracking-tight text-white md:text-3xl">
+              Explore &amp; Search
+            </h1>
+          </div>
+          {(q || genre) && (
+            <button
+              type="button"
+              onClick={() => {
+                setInput('')
+                setParams({ q: null, genre: null, sort: 'SCORE_DESC' })
+              }}
+              className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/[0.06] px-3 py-1 text-xs font-bold text-slate-300 transition-colors hover:border-primary hover:text-primary"
             >
-              {q && <option value="SEARCH_MATCH">Best match</option>}
-              {SORTS.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <X className="size-3.5" /> Reset Filters
+            </button>
+          )}
         </div>
+
+        {/* Pill Search Bar */}
+        <label className="relative block">
+          <span className="sr-only">Search by title</span>
+          <Search
+            className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-primary"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Search anime titles, studios, or series…"
+            className="h-12 w-full rounded-full border border-white/12 bg-[#0E1015]/85 pl-11 pr-11 text-sm font-medium text-white outline-none placeholder:text-slate-400 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30"
+          />
+          {input && (
+            <button
+              type="button"
+              onClick={() => {
+                setInput('')
+                setParams({ q: null })
+              }}
+              aria-label="Clear search query"
+              className="absolute right-3 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 text-slate-300 hover:bg-primary hover:text-white"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </label>
+
+        {/* Interactive Sort Pills */}
+        <div className="no-scrollbar flex items-center gap-2 overflow-x-auto pb-0.5">
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+            <SlidersHorizontal className="size-3.5 text-primary" aria-hidden="true" /> Sort:
+          </span>
+          {availableSorts.map((s) => {
+            const active = sort === s.value
+            return (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => setParams({ sort: s.value })}
+                className={cn(
+                  'shrink-0 rounded-full px-3.5 py-1.5 text-xs font-extrabold transition-all',
+                  active
+                    ? 'active-pill'
+                    : 'border border-white/10 bg-[#0E1015]/70 text-slate-300 hover:border-primary/40 hover:text-white',
+                )}
+              >
+                {s.label}
+              </button>
+            )
+          })}
+        </div>
+
         <GenreBar selected={genre} onSelect={(g) => setParams({ genre: g })} />
       </div>
 
-      <section aria-live="polite" aria-label="Results">
-        <p className="mb-4 text-sm text-muted-foreground">
-          {genre ? `Top ${genre} anime` : 'All anime'}
-          {q ? ` matching “${q}”` : ''}
-        </p>
+      {/* Results Section */}
+      <section aria-live="polite" aria-label="Results" className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="size-4 text-upcoming" aria-hidden="true" />
+            <p className="text-sm font-bold text-slate-200">
+              {genre ? `Top ${genre} Anime` : 'Catalog Results'}
+              {q ? ` matching “${q}”` : ''}
+            </p>
+          </div>
+          {data?.Page.media && (
+            <span className="rounded-full px-3 py-0.5 text-xs font-extrabold amber-pill">
+              {data.Page.media.length} Titles
+            </span>
+          )}
+        </div>
+
         <AnimeGrid
           items={data?.Page.media}
           loading={isLoading}
