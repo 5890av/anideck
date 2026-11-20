@@ -7,6 +7,7 @@ import {
   Activity as ActivityIcon,
   Download,
   Heart,
+  Link2,
   ListPlus,
   MessageCircle,
   Pencil,
@@ -16,6 +17,7 @@ import {
   Star,
   Trash2,
   Tv,
+  UserCheck,
   Users,
   X,
 } from 'lucide-react'
@@ -23,6 +25,7 @@ import { anilist, COMMUNITY_ACTIVITY_QUERY, displayTitle, type ListActivity } fr
 import { clearActivityLog, useActivityLog, type ActivityEntry, type ActivityType } from '@/lib/activity'
 import { dayLabel, timeAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import { ConnectAniListButton } from './connect-anilist'
 
 const LOCAL_LIKES_KEY = 'anideck_activity_likes_v1'
 
@@ -31,6 +34,27 @@ const ACTIVITY_WITH_REPLIES_QUERY = `
     Page(page: $page, perPage: 25) {
       pageInfo { hasNextPage }
       activities(type: ANIME_LIST, sort: ID_DESC) {
+        ... on ListActivity {
+          id
+          status
+          progress
+          createdAt
+          likeCount
+          replyCount
+          isLiked
+          user { id name avatar { medium } }
+          media { id title { romaji english } coverImage { medium } format }
+        }
+      }
+    }
+  }
+`
+
+const FOLLOWING_ACTIVITY_QUERY = `
+  query FollowingActivity($page: Int) {
+    Page(page: $page, perPage: 25) {
+      pageInfo { hasNextPage }
+      activities(type: ANIME_LIST, isFollowing: true, sort: ID_DESC) {
         ... on ListActivity {
           id
           status
@@ -155,7 +179,8 @@ function useLocalLikes() {
 }
 
 const TABS = [
-  { value: 'community', label: 'Community Feed', icon: Users },
+  { value: 'community', label: 'Community', icon: Users },
+  { value: 'following', label: 'Following', icon: UserCheck },
   { value: 'mine', label: 'My History', icon: ActivityIcon },
 ] as const
 
@@ -172,14 +197,14 @@ export function ActivityView() {
             <h1 className="text-2xl font-black tracking-tight text-white md:text-3xl">Activity Stream</h1>
           </div>
           <p className="text-xs font-medium text-slate-400 sm:text-sm">
-            Live AniList community updates and your personal watch history.
+            Live AniList updates from the community, people you follow, and your watch history.
           </p>
         </div>
 
         <div
           role="tablist"
           aria-label="Activity feeds"
-          className="flex w-fit gap-1 rounded-full border border-white/12 bg-[#0E1015]/85 p-1"
+          className="no-scrollbar flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/12 bg-[#0E1015]/85 p-1"
         >
           {TABS.map((t) => {
             const Icon = t.icon
@@ -194,7 +219,7 @@ export function ActivityView() {
                 aria-controls={`panel-${t.value}`}
                 onClick={() => setTab(t.value)}
                 className={cn(
-                  'inline-flex h-8 items-center gap-1.5 rounded-full px-4 text-xs font-extrabold transition-all',
+                  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-4 text-xs font-extrabold transition-all',
                   active ? 'active-pill' : 'text-slate-400 hover:text-white',
                 )}
               >
@@ -207,7 +232,13 @@ export function ActivityView() {
       </div>
 
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
-        {tab === 'community' ? <CommunityFeed /> : <MyFeed />}
+        {tab === 'community' ? (
+          <SocialActivityFeed mode="community" />
+        ) : tab === 'following' ? (
+          <SocialActivityFeed mode="following" onSwitchToCommunity={() => setTab('community')} />
+        ) : (
+          <MyFeed />
+        )}
       </div>
     </div>
   )
@@ -234,28 +265,74 @@ type ActivityReplyItem = {
 
 type CommunityResponse = { Page: { activities: (CommunityActivityItem | Record<string, never>)[] } }
 
-function CommunityFeed() {
+function SocialActivityFeed({
+  mode,
+  onSwitchToCommunity,
+}: {
+  mode: 'community' | 'following'
+  onSwitchToCommunity?: () => void
+}) {
+  const [token, setToken] = useState<string | null>(null)
+
+  useEffect(() => {
+    const syncToken = () => setToken(getStoredAniListToken())
+    syncToken()
+    window.addEventListener('storage', syncToken)
+    window.addEventListener('focus', syncToken)
+    return () => {
+      window.removeEventListener('storage', syncToken)
+      window.removeEventListener('focus', syncToken)
+    }
+  }, [])
+
+  const shouldFetch = mode === 'community' || Boolean(token)
+
   const { data, error, isLoading, isValidating, mutate } = useSWR<CommunityResponse>(
-    [ACTIVITY_WITH_REPLIES_QUERY || COMMUNITY_ACTIVITY_QUERY, { page: 1 }],
+    shouldFetch
+      ? mode === 'following'
+        ? ['following-activity', token]
+        : [ACTIVITY_WITH_REPLIES_QUERY || COMMUNITY_ACTIVITY_QUERY, { page: 1 }]
+      : null,
+    mode === 'following'
+      ? () => anilist<CommunityResponse>(FOLLOWING_ACTIVITY_QUERY, { page: 1 }, token!)
+      : undefined,
     { refreshInterval: 60_000 },
   )
+
   const { likedIds, toggleLocalLike } = useLocalLikes()
   const [remoteOverrides, setRemoteOverrides] = useState<Record<number, { isLiked: boolean; likeCount: number }>>({})
   const [replyCountOverrides, setReplyCountOverrides] = useState<Record<number, number>>({})
   const [pendingIds, setPendingIds] = useState<Record<number, boolean>>({})
   const [activeDrawerActivity, setActiveDrawerActivity] = useState<CommunityActivityItem | null>(null)
 
+  if (mode === 'following' && !token) {
+    return (
+      <div className="glass-panel flex flex-col items-center justify-center gap-3.5 rounded-3xl p-10 text-center">
+        <div className="flex size-12 items-center justify-center rounded-2xl active-pill">
+          <Link2 className="size-5" aria-hidden="true" />
+        </div>
+        <div className="max-w-md">
+          <h2 className="text-base font-extrabold text-white">Sync AniList to See Following Activity</h2>
+          <p className="mt-1 text-xs leading-relaxed text-slate-400">
+            Connect your AniList account to view real-time episode updates and ratings from people you follow.
+          </p>
+        </div>
+        <ConnectAniListButton variant="inline" />
+      </div>
+    )
+  }
+
   const items = (data?.Page.activities ?? []).filter(
     (a): a is CommunityActivityItem => 'id' in a && !!a.media && !!a.user,
   )
 
-  const handleToggleCommunityLike = async (activity: CommunityActivityItem) => {
+  const handleToggleLike = async (activity: CommunityActivityItem) => {
     if (pendingIds[activity.id]) return
-    const token = getStoredAniListToken()
+    const latestToken = getStoredAniListToken()
     const baseCount = activity.likeCount ?? 0
     const localKey = `community:${activity.id}`
 
-    if (!token) {
+    if (!latestToken) {
       toggleLocalLike(localKey)
       return
     }
@@ -275,7 +352,7 @@ function CommunityFeed() {
       const json = await anilist<{ ToggleLikeV2?: { isLiked: boolean; likeCount: number } }>(
         TOGGLE_LIKE_MUTATION,
         { id: activity.id },
-        token,
+        latestToken,
       )
       const updated = json?.ToggleLikeV2
       if (updated && typeof updated.isLiked === 'boolean') {
@@ -306,7 +383,9 @@ function CommunityFeed() {
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
           <span className="size-2 rounded-full bg-airing animate-pulse" aria-hidden="true" />
-          Live public list updates · refreshes every minute
+          {mode === 'following'
+            ? 'Updates from users you follow · refreshes every minute'
+            : 'Live public list updates · refreshes every minute'}
         </span>
         <button
           type="button"
@@ -324,6 +403,23 @@ function CommunityFeed() {
         </p>
       ) : isLoading ? (
         <FeedSkeleton />
+      ) : items.length === 0 && mode === 'following' ? (
+        <div className="glass-panel flex flex-col items-center justify-center gap-3 rounded-3xl p-10 text-center">
+          <UserCheck className="size-8 text-primary" aria-hidden="true" />
+          <p className="text-sm font-bold text-white">No recent activity from people you follow</p>
+          <p className="max-w-md text-xs text-slate-400">
+            Open any user profile from the Community feed and tap Follow to build your personal stream.
+          </p>
+          {onSwitchToCommunity && (
+            <button
+              type="button"
+              onClick={onSwitchToCommunity}
+              className="mt-1 inline-flex h-9 items-center gap-1.5 rounded-full px-5 text-xs font-extrabold active-pill"
+            >
+              Browse Community
+            </button>
+          )}
+        </div>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2">
           {items.map((a) => {
@@ -374,7 +470,7 @@ function CommunityFeed() {
 
                     <button
                       type="button"
-                      onClick={() => handleToggleCommunityLike(a)}
+                      onClick={() => handleToggleLike(a)}
                       disabled={Boolean(pendingIds[a.id])}
                       aria-pressed={isLiked}
                       aria-label={isLiked ? 'Unlike activity' : 'Like activity'}
