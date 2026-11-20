@@ -23,82 +23,63 @@ function decodeHtml(str: string): string {
     .trim()
 }
 
-function parseMalHtmlThemes(html: string): ThemeItem[] {
-  const results: ThemeItem[] = []
+function parseBlockItems(section: string, type: 'OP' | 'ED'): ThemeItem[] {
+  const items: ThemeItem[] = []
+  const songTitleRegex = /class="theme-song-title"[^>]*>([\s\S]*?)<\/span>/gi
+  const artistRegex = /class="theme-song-artist"[^>]*>([\s\S]*?)<\/span>/gi
+  const epRegex = /class="theme-song-episode"[^>]*>([\s\S]*?)<\/span>/gi
 
-  const extractSection = (startRegex: RegExp, endMarkers: string[], type: 'OP' | 'ED') => {
-    const startMatch = startRegex.exec(html)
-    if (!startMatch) return
+  const titles: string[] = []
+  const artists: string[] = []
+  const eps: string[] = []
+  let m: RegExpExecArray | null
 
-    const contentStart = startMatch.index + startMatch[0].length
-    let endIdx = html.length
-    for (const marker of endMarkers) {
-      const found = html.indexOf(marker, contentStart)
-      if (found !== -1 && found < endIdx) endIdx = found
-    }
-    const section = html.slice(contentStart, endIdx)
-
-    // 1. Modern MAL markup: <span class="theme-song-title"> & <span class="theme-song-artist">
-    const songTitleRegex = /class="theme-song-title"[^>]*>([\s\S]*?)<\/span>/gi
-    const artistRegex = /class="theme-song-artist"[^>]*>([\s\S]*?)<\/span>/gi
-    const epRegex = /class="theme-song-episode"[^>]*>([\s\S]*?)<\/span>/gi
-
-    const titles: string[] = []
-    const artists: string[] = []
-    const eps: string[] = []
-    let m: RegExpExecArray | null
-
-    while ((m = songTitleRegex.exec(section)) !== null) titles.push(decodeHtml(m[1]))
-    while ((m = artistRegex.exec(section)) !== null) {
-      artists.push(decodeHtml(m[1]).replace(/^by\s+/i, '').trim())
-    }
-    while ((m = epRegex.exec(section)) !== null) {
-      eps.push(decodeHtml(m[1]).replace(/^\(|\)$/g, '').replace(/^eps?\s*/i, '').trim())
-    }
-
-    if (titles.length > 0) {
-      titles.forEach((rawTitle, idx) => {
-        const cleanTitle = rawTitle.replace(/^"|"$/g, '').trim()
-        if (!cleanTitle) return
-        results.push({
-          id: `mal-${type}-${idx}`,
-          type,
-          slug: `${type}${idx + 1}`,
-          songTitle: cleanTitle,
-          artists: artists[idx] ? [artists[idx]] : [],
-          episodes: eps[idx] || null,
-          videoUrl: null,
-        })
-      })
-      return
-    }
-
-    // 2. Fallback row parser (<tr> or <li>)
-    const rowRegex = /<(?:tr|li)[^>]*>([\s\S]*?)<\/(?:tr|li)>/gi
-    let idx = 0
-    while ((m = rowRegex.exec(section)) !== null) {
-      const rowText = decodeHtml(m[1]).replace(/^(?:S?\d+:)\s*/i, '').trim()
-      if (!rowText || rowText.length < 3) continue
-      const epMatch = rowText.match(/\(([^)]+)\)\s*$/)
-      const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '').trim() : null
-      const withoutEp = epMatch ? rowText.slice(0, epMatch.index).trim() : rowText
-      const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
-
-      results.push({
-        id: `mal-${type}-${idx}`,
-        type,
-        slug: `${type}${idx + 1}`,
-        songTitle: titleMatch ? titleMatch[1].trim() : withoutEp,
-        artists: titleMatch?.[2] ? [titleMatch[2].trim()] : [],
-        episodes,
-        videoUrl: null,
-      })
-      idx++
-    }
+  while ((m = songTitleRegex.exec(section)) !== null) titles.push(decodeHtml(m[1]))
+  while ((m = artistRegex.exec(section)) !== null) {
+    artists.push(decodeHtml(m[1]).replace(/^by\s+/i, '').trim())
+  }
+  while ((m = epRegex.exec(section)) !== null) {
+    eps.push(decodeHtml(m[1]).replace(/^\(|\)$/g, '').replace(/^eps?\s*/i, '').trim())
   }
 
-  extractSection(/class="[^"]*js-theme-songs[^"]*opn[^"]*"/i, ['js-theme-songs', 'Ending Theme', '<h2>'], 'OP')
-  extractSection(/class="[^"]*js-theme-songs[^"]*ed[^"]*"/i, ['<h2>', 'detail-characters-list', 'class="border_top'], 'ED')
+  titles.forEach((rawTitle, idx) => {
+    const cleanTitle = rawTitle.replace(/^"|"$/g, '').trim()
+    if (!cleanTitle) return
+    items.push({
+      id: `mal-${type}-${idx}`,
+      type,
+      slug: `${type}${idx + 1}`,
+      songTitle: cleanTitle,
+      artists: artists[idx] ? [artists[idx]] : [],
+      episodes: eps[idx] || null,
+      videoUrl: null,
+    })
+  })
+
+  return items
+}
+
+function parseMalHtmlThemes(html: string): ThemeItem[] {
+  // Match every js-theme-songs container on the page in order (1st = OP, 2nd = ED)
+  const containerRegex = /<div[^>]*class="[^"]*js-theme-songs([^"]*)"[^>]*>/gi
+  const matches: { index: number; endOfTag: number; classes: string }[] = []
+  let m: RegExpExecArray | null
+
+  while ((m = containerRegex.exec(html)) !== null) {
+    matches.push({
+      index: m.index,
+      endOfTag: m.index + m[0].length,
+      classes: m[1].toLowerCase(),
+    })
+  }
+
+  const results: ThemeItem[] = []
+  matches.forEach((entry, i) => {
+    const nextStart = matches[i + 1] ? matches[i + 1].index : Math.min(html.length, entry.endOfTag + 25000)
+    const section = html.slice(entry.endOfTag, nextStart)
+    const isEnding = entry.classes.includes('ed') || entry.classes.includes('ending') || i === 1
+    results.push(...parseBlockItems(section, isEnding ? 'ED' : 'OP'))
+  })
 
   return results
 }
