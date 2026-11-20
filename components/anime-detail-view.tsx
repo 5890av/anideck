@@ -41,31 +41,7 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
-function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeThemeItem {
-  const cleaned = raw.replace(/^\d+:\s*/, '').trim()
-  const epMatch = cleaned.match(/\(([^)]+)\)\s*$/)
-  const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '') : null
-  const withoutEp = epMatch ? cleaned.slice(0, epMatch.index).trim() : cleaned
-
-  const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
-  if (titleMatch) {
-    return {
-      id: `jikan-${type}-${idx}`,
-      type,
-      slug: `${type}${idx + 1}`,
-      songTitle: titleMatch[1].trim(),
-      artists: titleMatch[2] ? [titleMatch[2].trim()] : [],
-      episodes,
-      videoUrl: null,
-    }
-  }
-
-  return {
-    id: `jikan-${type}-${idx}`,
-    type,
-    slug: `${type}${idx + 1}`,
-    songTitle: withoutEp || `${type} ${idx + 1}`,
-    async function fetchThemesDirectly(anilistId: number): Promise<AnimeThemeItem[]> {
+async function fetchThemesFromApi(anilistId: number): Promise<AnimeThemeItem[]> {
   try {
     const res = await fetch(`/api/themes?id=${encodeURIComponent(String(anilistId))}`)
     if (!res.ok) return []
@@ -74,29 +50,6 @@ function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeTheme
   } catch {
     return []
   }
-}
-
-  }
-
-  // 3. Fetch full OP/ED list directly from MyAnimeList (Jikan)
-  if (malId) {
-    try {
-      const jikanRes = await fetchTimed(`https://api.jikan.moe/v4/anime/${malId}/themes`, undefined, 6000)
-      if (jikanRes.ok) {
-        const jikanJson = await jikanRes.json()
-        const ops: string[] = Array.isArray(jikanJson?.data?.openings) ? jikanJson.data.openings : []
-        const eds: string[] = Array.isArray(jikanJson?.data?.endings) ? jikanJson.data.endings : []
-        return [
-          ...ops.map((raw, idx) => parseJikanLine(raw, 'OP', idx)),
-          ...eds.map((raw, idx) => parseJikanLine(raw, 'ED', idx)),
-        ]
-      }
-    } catch {
-      // Ignore
-    }
-  }
-
-  return []
 }
 
 export function AnimeDetailView({ id }: { id: number }) {
@@ -112,7 +65,7 @@ export function AnimeDetailView({ id }: { id: number }) {
     setThemes([])
     setPlayingTheme(null)
 
-    fetchThemesDirectly(id)
+    fetchThemesFromApi(id)
       .then((items) => {
         if (active) setThemes(items)
       })
