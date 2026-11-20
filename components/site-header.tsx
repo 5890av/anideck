@@ -23,18 +23,18 @@ export function SiteHeader() {
     <>
       <header className="glass-nav sticky top-0 z-40 w-full">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 md:px-6">
-          {/* Left: Crimson Stacked Brand Icon + Wordmark */}
-          <Link href="/" className="flex shrink-0 items-center gap-2.5 group">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground active-pill transition-transform group-hover:scale-105">
+          {/* Left: Sunset Coral Brand Icon + Wordmark */}
+          <Link href="/" className="group flex shrink-0 items-center gap-2.5">
+            <span className="flex size-9 items-center justify-center rounded-xl active-pill transition-transform group-hover:scale-105">
               <Layers className="size-4.5" aria-hidden="true" />
             </span>
-            <span className="text-lg font-bold tracking-tight text-foreground">Anideck</span>
+            <span className="text-lg font-extrabold tracking-tight text-white">Anideck</span>
           </Link>
 
-          {/* Center: Floating Glassmorphic Pill Navigation (Tablet & Desktop) */}
+          {/* Center: Editorial Warm-Slate Pill Navigation (Tablet & Desktop) */}
           <nav
             aria-label="Primary navigation"
-            className="hidden md:flex items-center gap-1 rounded-full border border-white/10 bg-[#121215]/80 p-1 shadow-xl backdrop-blur-xl"
+            className="hidden md:flex items-center gap-1 rounded-full border border-white/10 bg-[#161922]/85 p-1 shadow-xl backdrop-blur-xl"
           >
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon
@@ -46,21 +46,16 @@ export function SiteHeader() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    'flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-semibold transition-all duration-200',
+                    'flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-bold transition-all duration-200',
                     isActive
-                      ? 'bg-primary text-primary-foreground active-pill'
-                      : 'text-muted-foreground hover:bg-white/[0.06] hover:text-foreground',
+                      ? 'bg-[#FF6B4A]/20 text-[#FF8E53] ring-1 ring-[#FF6B4A]/45'
+                      : 'text-slate-400 hover:bg-white/[0.05] hover:text-white',
                   )}
                 >
                   <Icon className="size-3.5" aria-hidden="true" />
                   <span>{item.label}</span>
                   {item.href === '/watchlist' && watchlist.length > 0 && (
-                    <span
-                      className={cn(
-                        'rounded-full px-1.5 py-0.2 text-[10px] font-bold tabular-nums',
-                        isActive ? 'bg-black/25 text-white' : 'bg-primary/20 text-primary',
-                      )}
-                    >
+                    <span className="rounded-full px-1.5 py-0.2 text-[10px] font-extrabold tabular-nums active-pill">
                       {watchlist.length}
                     </span>
                   )}
@@ -76,10 +71,10 @@ export function SiteHeader() {
               aria-label="Anime Mood Roulette"
               title="Mood Spin"
               className={cn(
-                'flex size-9 items-center justify-center rounded-xl border transition-colors',
+                'flex size-9 items-center justify-center rounded-full border transition-colors',
                 pathname === '/roulette'
-                  ? 'border-primary bg-primary text-primary-foreground active-pill'
-                  : 'border-white/10 bg-white/[0.04] text-muted-foreground hover:border-primary/40 hover:text-primary',
+                  ? 'border-transparent active-pill'
+                  : 'border-white/10 bg-[#161922]/80 text-slate-300 hover:border-primary/45 hover:text-primary',
               )}
             >
               <Dices className="size-4" aria-hidden="true" />
@@ -110,16 +105,16 @@ export function SiteHeader() {
                   className={cn(
                     'flex h-7 w-11 items-center justify-center rounded-xl transition-all',
                     isActive
-                      ? 'bg-primary text-primary-foreground active-pill'
-                      : 'text-muted-foreground hover:text-foreground',
+                      ? 'active-pill'
+                      : 'text-slate-400 hover:text-white',
                   )}
                 >
                   <Icon className="size-4" aria-hidden="true" />
                 </span>
                 <span
                   className={cn(
-                    'text-[10px] font-semibold',
-                    isActive ? 'text-primary' : 'text-muted-foreground',
+                    'text-[10px] font-bold',
+                    isActive ? 'text-primary' : 'text-slate-400',
                   )}
                 >
                   {item.label}
