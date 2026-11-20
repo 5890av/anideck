@@ -41,20 +41,83 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
-async function fetchThemesFromApi(anilistId: number): Promise<{ themes: AnimeThemeItem[]; debug?: string }> {
-  try {
-    const res = await fetch(`/api/themes?id=${encodeURIComponent(String(anilistId))}`)
-    if (!res.ok) {
-      return { themes: [], debug: `API route HTTP ${res.status}` }
-    }
-    const json = await res.json()
-    const themes = Array.isArray(json?.themes) ? json.themes : []
+function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeThemeItem {
+  const cleaned = raw.replace(/^\d+:\s*/, '').trim()
+  const epMatch = cleaned.match(/\(([^)]+)\)\s*$/)
+  const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '') : null
+  const withoutEp = epMatch ? cleaned.slice(0, epMatch.index).trim() : cleaned
+
+  const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
+  if (titleMatch) {
     return {
-      themes,
-      debug: themes.length === 0 ? json?.error || 'API returned 0 themes' : undefined,
+      id: `jikan-${type}-${idx}`,
+      type,
+      slug: `${type}${idx + 1}`,
+      songTitle: titleMatch[1].trim(),
+      artists: titleMatch[2] ? [titleMatch[2].trim()] : [],
+      episodes,
+      videoUrl: null,
     }
+  }
+
+  return {
+    id: `jikan-${type}-${idx}`,
+    type,
+    slug: `${type}${idx + 1}`,
+    songTitle: withoutEp || `${type} ${idx + 1}`,
+    artists: [],
+    episodes,
+    videoUrl: null,
+  }
+}
+
+async function fetchThemesDirectly(anilistId: number): Promise<{ themes: AnimeThemeItem[]; debug?: string }> {
+  try {
+    // 1. Get exact MAL ID (idMal) from AniList GraphQL
+    const gqlRes = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal title { romaji english } } }',
+        variables: { id: anilistId },
+      }),
+    })
+    if (!gqlRes.ok) return { themes: [], debug: `AniList HTTP ${gqlRes.status}` }
+
+    const gqlJson = await gqlRes.json()
+    const m = gqlJson?.data?.Media
+    let malId: number | null = m?.idMal ?? null
+
+    if (!malId) {
+      const searchTitle = m?.title?.romaji || m?.title?.english
+      if (searchTitle) {
+        const searchRes = await fetch(
+          `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
+        )
+        if (searchRes.ok) {
+          const searchJson = await searchRes.json()
+          malId = searchJson?.data?.[0]?.mal_id ?? null
+        }
+      }
+    }
+
+    if (!malId) return { themes: [], debug: 'No MAL ID found' }
+
+    // 2. Fetch OP/ED directly from Jikan (MyAnimeList) in the browser
+    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`)
+    if (!res.ok) return { themes: [], debug: `Jikan HTTP ${res.status}` }
+
+    const json = await res.json()
+    const ops: string[] = Array.isArray(json?.data?.openings) ? json.data.openings : []
+    const eds: string[] = Array.isArray(json?.data?.endings) ? json.data.endings : []
+    const themes = [
+      ...ops.map((raw, idx) => parseJikanLine(raw, 'OP', idx)),
+      ...eds.map((raw, idx) => parseJikanLine(raw, 'ED', idx)),
+    ]
+
+    return { themes, debug: themes.length === 0 ? 'No themes listed on MAL' : undefined }
   } catch (err: any) {
-    return { themes: [], debug: err?.message || 'Network error calling /api/themes' }
+    return { themes: [], debug: err?.message || 'Network error' }
   }
 }
 
@@ -73,7 +136,7 @@ export function AnimeDetailView({ id }: { id: number }) {
     setThemesDebug(undefined)
     setPlayingTheme(null)
 
-    fetchThemesFromApi(id)
+    fetchThemesDirectly(id)
       .then((res) => {
         if (active) {
           setThemes(res.themes)
