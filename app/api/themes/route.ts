@@ -26,59 +26,74 @@ function decodeHtml(str: string): string {
 function parseMalHtmlThemes(html: string): ThemeItem[] {
   const results: ThemeItem[] = []
 
-  const extractBlock = (blockRegex: RegExp, type: 'OP' | 'ED') => {
-    const blockMatch = html.match(blockRegex)
-    if (!blockMatch) return
-    const blockHtml = blockMatch[1]
+  const extractSection = (startMarker: string, endMarkers: string[], type: 'OP' | 'ED') => {
+    const startIdx = html.indexOf(startMarker)
+    if (startIdx === -1) return
 
-    // Match each table row inside the theme-songs block
-    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi
-    let rowMatch: RegExpExecArray | null
+    let endIdx = html.length
+    for (const marker of endMarkers) {
+      const found = html.indexOf(marker, startIdx + startMarker.length)
+      if (found !== -1 && found < endIdx) endIdx = found
+    }
+    const section = html.slice(startIdx, endIdx)
+
+    // 1. Modern MAL markup: <span class="theme-song-title"> & <span class="theme-song-artist">
+    const songTitleRegex = /class="theme-song-title"[^>]*>([\s\S]*?)<\/span>/gi
+    const artistRegex = /class="theme-song-artist"[^>]*>([\s\S]*?)<\/span>/gi
+    const epRegex = /class="theme-song-episode"[^>]*>([\s\S]*?)<\/span>/gi
+
+    const titles: string[] = []
+    const artists: string[] = []
+    const eps: string[] = []
+    let m: RegExpExecArray | null
+
+    while ((m = songTitleRegex.exec(section)) !== null) titles.push(decodeHtml(m[1]))
+    while ((m = artistRegex.exec(section)) !== null) artists.push(decodeHtml(m[1]).replace(/^by\s+/i, '').trim())
+    while ((m = epRegex.exec(section)) !== null) eps.push(decodeHtml(m[1]).replace(/^\(|\)$/g, '').replace(/^eps?\s*/i, '').trim())
+
+    if (titles.length > 0) {
+      titles.forEach((rawTitle, idx) => {
+        const cleanTitle = rawTitle.replace(/^"|"$/g, '').trim()
+        if (!cleanTitle) return
+        results.push({
+          id: `mal-${type}-${idx}`,
+          type,
+          slug: `${type}${idx + 1}`,
+          songTitle: cleanTitle,
+          artists: artists[idx] ? [artists[idx]] : [],
+          episodes: eps[idx] || null,
+          videoUrl: null,
+        })
+      })
+      return
+    }
+
+    // 2. Fallback row parser (<tr> or <li>)
+    const rowRegex = /<(?:tr|li)[^>]*>([\s\S]*?)<\/(?:tr|li)>/gi
     let idx = 0
-
-    while ((rowMatch = rowRegex.exec(blockHtml)) !== null) {
-      const rowText = decodeHtml(rowMatch[1])
-      if (!rowText) continue
-
-      // Strip leading index like "1:" or "S1:"
-      const cleaned = rowText.replace(/^(?:S?\d+:)\s*/i, '').trim()
-      if (!cleaned) continue
-
-      // Extract trailing "(eps 1-12)" if present
-      const epMatch = cleaned.match(/\(([^)]+)\)\s*$/)
+    while ((m = rowRegex.exec(section)) !== null) {
+      const rowText = decodeHtml(m[1]).replace(/^(?:S?\d+:)\s*/i, '').trim()
+      if (!rowText || rowText.length < 3) continue
+      const epMatch = rowText.match(/\(([^)]+)\)\s*$/)
       const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '').trim() : null
-      const withoutEp = epMatch ? cleaned.slice(0, epMatch.index).trim() : cleaned
-
-      // Extract `"Song Title" by Artist`
+      const withoutEp = epMatch ? rowText.slice(0, epMatch.index).trim() : rowText
       const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
-      if (titleMatch) {
-        results.push({
-          id: `mal-${type}-${idx}`,
-          type,
-          slug: `${type}${idx + 1}`,
-          songTitle: titleMatch[1].trim(),
-          artists: titleMatch[2] ? [titleMatch[2].trim()] : [],
-          episodes,
-          videoUrl: null,
-        })
-        idx++
-      } else if (withoutEp.length > 1) {
-        results.push({
-          id: `mal-${type}-${idx}`,
-          type,
-          slug: `${type}${idx + 1}`,
-          songTitle: withoutEp,
-          artists: [],
-          episodes,
-          videoUrl: null,
-        })
-        idx++
-      }
+
+      results.push({
+        id: `mal-${type}-${idx}`,
+        type,
+        slug: `${type}${idx + 1}`,
+        songTitle: titleMatch ? titleMatch[1].trim() : withoutEp,
+        artists: titleMatch?.[2] ? [titleMatch[2].trim()] : [],
+        episodes,
+        videoUrl: null,
+      })
+      idx++
     }
   }
 
-  extractBlock(/class="theme-songs\s+js-theme-songs\s+opn"[\s\S]*?(<table[\s\S]*?<\/table>)/i, 'OP')
-  extractBlock(/class="theme-songs\s+js-theme-songs\s+ed"[\s\S]*?(<table[\s\S]*?<\/table>)/i, 'ED')
+  extractSection('js-theme-songs opn', ['js-theme-songs ed', '<h2>', '<div class="border_top'], 'OP')
+  extractSection('js-theme-songs ed', ['<h2>', '<div class="border_top', 'detail-characters-list'], 'ED')
 
   return results
 }
@@ -86,14 +101,13 @@ function parseMalHtmlThemes(html: string): ThemeItem[] {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const title = searchParams.get('title')?.trim()
-  const year = searchParams.get('year')
 
   if (!title) {
     return NextResponse.json({ themes: [], error: 'Missing title' })
   }
 
   try {
-    // 1. Resolve exact idMal from AniList GraphQL by title
+    // 1. Resolve exact idMal from AniList GraphQL
     const gqlRes = await fetch('https://graphql.anilist.co', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -107,67 +121,31 @@ export async function GET(request: Request) {
     const gqlJson = gqlRes.ok ? await gqlRes.json() : null
     const malId: number | null = gqlJson?.data?.Media?.idMal ?? null
 
-    // 2. Fetch directly from MyAnimeList's official anime page
-    if (malId) {
-      const malRes = await fetch(`https://myanimelist.net/anime/${malId}`, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-          Accept: 'text/html,application/xhtml+xml',
-        },
-        cache: 'no-store',
-      })
-
-      if (malRes.ok) {
-        const html = await malRes.text()
-        const themes = parseMalHtmlThemes(html)
-        if (themes.length > 0) {
-          return NextResponse.json({ themes, malId })
-        }
-      }
+    if (!malId) {
+      return NextResponse.json({ themes: [], error: 'No MAL ID found' })
     }
 
-    // 3. Secondary fallback: AnimeThemes API (when online)
-    const atUrl = `https://api.animethemes.moe/anime?q=${encodeURIComponent(title)}&page[size]=5&include=animethemes.song.artists,animethemes.animethemeentries.videos`
-    const atRes = await fetch(atUrl, {
-      headers: { Accept: 'application/json', 'User-Agent': 'Anideck/1.0' },
+    // 2. Fetch directly from MyAnimeList's official anime page
+    const malRes = await fetch(`https://myanimelist.net/anime/${malId}`, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+        Accept: 'text/html,application/xhtml+xml',
+      },
       cache: 'no-store',
     })
 
-    if (atRes.ok) {
-      const atJson = await atRes.json()
-      const candidates: any[] = Array.isArray(atJson?.anime) ? atJson.anime : []
-      const bestMatch =
-        (year ? candidates.find((c) => Number(c?.year) === Number(year)) : null) || candidates[0]
-      const rawThemes: any[] = Array.isArray(bestMatch?.animethemes) ? bestMatch.animethemes : []
-      const themes = rawThemes.map((t, i) => {
-        const song = t?.song ?? {}
-        const artistsArr: any[] = Array.isArray(song.artists) ? song.artists : []
-        const entries: any[] = Array.isArray(t?.animethemeentries) ? t.animethemeentries : []
-        const firstEntry = entries[0] ?? {}
-        const videos: any[] = Array.isArray(firstEntry.videos) ? firstEntry.videos : []
-        const firstVideo = videos[0] ?? {}
-
-        return {
-          id: `at-${t?.id ?? i}`,
-          type: t?.type === 'ED' ? 'ED' : 'OP',
-          slug: String(t?.slug || t?.type || `OP${i + 1}`),
-          songTitle: typeof song.title === 'string' && song.title ? song.title : 'Untitled Theme',
-          artists: artistsArr.map((a) => (typeof a?.name === 'string' ? a.name : '')).filter(Boolean),
-          episodes: typeof firstEntry.episodes === 'string' && firstEntry.episodes ? firstEntry.episodes : null,
-          videoUrl: typeof firstVideo.link === 'string' ? firstVideo.link : null,
-        }
-      })
-
-      if (themes.length > 0) {
-        return NextResponse.json({ themes, malId })
-      }
+    if (!malRes.ok) {
+      return NextResponse.json({ themes: [], malId, error: `MAL HTTP ${malRes.status}` })
     }
 
+    const html = await malRes.text()
+    const themes = parseMalHtmlThemes(html)
+
     return NextResponse.json({
-      themes: [],
+      themes,
       malId,
-      error: malId ? `No themes parsed for MAL #${malId}` : `AnimeThemes HTTP ${atRes.status}`,
+      error: themes.length === 0 ? `No themes parsed for MAL #${malId}` : undefined,
     })
   } catch (err: any) {
     return NextResponse.json({ themes: [], error: err?.message || 'Server fetch error' })
