@@ -40,6 +40,11 @@ function parseJikanTheme(raw: string, type: 'OP' | 'ED', idx: number): ThemeItem
   }
 }
 
+const HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'Mozilla/5.0 (compatible; Anideck/1.0; +https://anideck-seven.vercel.app)',
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const id = Number(searchParams.get('id'))
@@ -51,7 +56,7 @@ export async function GET(request: Request) {
     // 1. Get exact MAL ID (idMal) from AniList GraphQL
     const gqlRes = await fetch('https://graphql.anilist.co', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: { ...HEADERS, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal title { romaji english } } }',
         variables: { id },
@@ -60,7 +65,7 @@ export async function GET(request: Request) {
     })
 
     if (!gqlRes.ok) {
-      return NextResponse.json({ themes: [], error: `AniList status ${gqlRes.status}` })
+      return NextResponse.json({ themes: [], error: `AniList ${gqlRes.status}` })
     }
 
     const gqlJson = await gqlRes.json()
@@ -72,7 +77,7 @@ export async function GET(request: Request) {
       if (title) {
         const searchRes = await fetch(
           `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=1`,
-          { cache: 'no-store' },
+          { headers: HEADERS, cache: 'no-store' },
         )
         if (searchRes.ok) {
           const searchJson = await searchRes.json()
@@ -87,11 +92,12 @@ export async function GET(request: Request) {
 
     // 2. Fetch OP/ED themes from MyAnimeList (Jikan)
     const jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`, {
+      headers: HEADERS,
       cache: 'no-store',
     })
 
     if (!jikanRes.ok) {
-      return NextResponse.json({ themes: [], error: `MAL status ${jikanRes.status}` })
+      return NextResponse.json({ themes: [], malId, error: `Jikan ${jikanRes.status}` })
     }
 
     const jikanJson = await jikanRes.json()
@@ -105,6 +111,10 @@ export async function GET(request: Request) {
 
     return NextResponse.json({ themes, malId })
   } catch (err: any) {
-    return NextResponse.json({ themes: [], error: err?.message || 'Theme lookup failed' })
+    const cause = err?.cause?.code || err?.cause?.message || ''
+    return NextResponse.json({
+      themes: [],
+      error: `${err?.message || 'fetch failed'}${cause ? ` (${cause})` : ''}`,
+    })
   }
 }
