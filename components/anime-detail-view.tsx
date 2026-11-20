@@ -21,7 +21,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react'
-import { displayTitle, formatEnum, formatFuzzyDate, MEDIA_DETAIL_QUERY, type MediaDetail } from '@/lib/anilist'
+import { anilist, displayTitle, formatEnum, formatFuzzyDate, MEDIA_DETAIL_QUERY, type MediaDetail } from '@/lib/anilist'
 import { cn } from '@/lib/utils'
 import { AiringCountdown, StatusBadge } from './status-badge'
 import { RichDescription } from './rich-description'
@@ -41,13 +41,97 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
+function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeThemeItem {
+  const cleaned = raw.replace(/^\d+:\s*/, '').trim()
+  const epMatch = cleaned.match(/\(([^)]+)\)\s*$/)
+  const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '') : null
+  const withoutEp = epMatch ? cleaned.slice(0, epMatch.index).trim() : cleaned
+
+  const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
+  if (titleMatch) {
+    return {
+      id: `jikan-${type}-${idx}`,
+      type,
+      slug: `${type}${idx + 1}`,
+      songTitle: titleMatch[1].trim(),
+      artists: titleMatch[2] ? [titleMatch[2].trim()] : [],
+      episodes,
+      videoUrl: null,
+    }
+  }
+
+  return {
+    id: `jikan-${type}-${idx}`,
+    type,
+    slug: `${type}${idx + 1}`,
+    songTitle: withoutEp || `${type} ${idx + 1}`,
+    artists: [],
+    episodes,
+    videoUrl: null,
+  }
+}
+
 async function fetchAnimeThemes(anilistId: number, searchTitle?: string): Promise<AnimeThemeItem[]> {
-  const params = new URLSearchParams({ id: String(anilistId) })
-  if (searchTitle) params.set('title', searchTitle)
-  const res = await fetch(`/api/themes?${params.toString()}`)
-  if (!res.ok) return []
-  const json = await res.json()
-  return Array.isArray(json?.themes) ? json.themes : []
+  // 1. Try server route /api/themes first (provides AnimeThemes video previews)
+  try {
+    const params = new URLSearchParams({ id: String(anilistId) })
+    if (searchTitle) params.set('title', searchTitle)
+    const res = await fetch(`/api/themes?${params.toString()}`)
+    if (res.ok) {
+      const json = await res.json()
+      if (Array.isArray(json?.themes) && json.themes.length > 0) {
+        return json.themes
+      }
+    }
+  } catch {
+    // Fall through to direct browser lookup
+  }
+
+  // 2. Direct browser lookup: resolve exact idMal from AniList, then fetch Jikan themes
+  let malId: number | null = null
+  try {
+    const malData = await anilist<{ Media: { idMal: number | null } }>(
+      'query ($id: Int) { Media(id: $id, type: ANIME) { idMal } }',
+      { id: anilistId },
+    )
+    malId = malData?.Media?.idMal ?? null
+  } catch {
+    // Ignore GraphQL lookup failure
+  }
+
+  if (!malId && searchTitle) {
+    try {
+      const searchRes = await fetch(
+        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
+      )
+      if (searchRes.ok) {
+        const searchJson = await searchRes.json()
+        malId = searchJson?.data?.[0]?.mal_id ?? null
+      }
+    } catch {
+      // Ignore search failure
+    }
+  }
+
+  if (malId) {
+    try {
+      const jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`)
+      if (jikanRes.ok) {
+        const jikanJson = await jikanRes.json()
+        const ops: string[] = Array.isArray(jikanJson?.data?.openings) ? jikanJson.data.openings : []
+        const eds: string[] = Array.isArray(jikanJson?.data?.endings) ? jikanJson.data.endings : []
+        const combined = [
+          ...ops.map((raw, idx) => parseJikanLine(raw, 'OP', idx)),
+          ...eds.map((raw, idx) => parseJikanLine(raw, 'ED', idx)),
+        ]
+        if (combined.length > 0) return combined
+      }
+    } catch {
+      // Ignore Jikan failure
+    }
+  }
+
+  return []
 }
 
 export function AnimeDetailView({ id }: { id: number }) {
@@ -61,6 +145,7 @@ export function AnimeDetailView({ id }: { id: number }) {
   const resolvedTitle = media ? displayTitle(media.title) : undefined
 
   useEffect(() => {
+    if (!media) return
     let cancelled = false
     setThemesLoading(true)
     setPlayingTheme(null)
@@ -77,7 +162,7 @@ export function AnimeDetailView({ id }: { id: number }) {
     return () => {
       cancelled = true
     }
-  }, [id, resolvedTitle])
+  }, [id, media, resolvedTitle])
 
   if (error && !media) {
     return (
