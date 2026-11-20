@@ -39,6 +39,7 @@ type AnimeThemeItem = {
   artists: string[]
   episodes: string | null
   videoUrl: string | null
+  youtubeId?: string | null
 }
 
 async function fetchThemesViaServer(
@@ -125,6 +126,14 @@ export function AnimeDetailView({ id }: { id: number }) {
     },
     { icon: Flame, label: media.popularity ? `${media.popularity.toLocaleString()} fans` : null },
   ].filter((item) => Boolean(item.label))
+
+  const getPlayerEmbedUrl = (theme: AnimeThemeItem) => {
+    if (theme.youtubeId) {
+      return `https://www.youtube.com/embed/${theme.youtubeId}?autoplay=1&rel=0`
+    }
+    const q = [title, theme.slug, theme.songTitle, ...theme.artists].filter(Boolean).join(' ')
+    return `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(q)}&autoplay=1`
+  }
 
   return (
     <article className="flex flex-col gap-6">
@@ -360,8 +369,8 @@ export function AnimeDetailView({ id }: { id: number }) {
 
       {activeTab === 'themes' && (
         <section className="flex flex-col gap-6 animate-in fade-in duration-300">
-          {/* Inline Cinema Theme Player */}
-          {playingTheme && playingTheme.videoUrl && (
+          {/* Inline Cinema Theme Player (plays directly inside the app) */}
+          {playingTheme && (
             <div className="glass-panel overflow-hidden rounded-3xl border-primary/40 p-4 shadow-2xl">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2.5">
@@ -386,14 +395,26 @@ export function AnimeDetailView({ id }: { id: number }) {
                   <X className="size-4" />
                 </button>
               </div>
-              <video
-                key={playingTheme.videoUrl}
-                src={playingTheme.videoUrl}
-                controls
-                autoPlay
-                playsInline
-                className="aspect-video max-h-96 w-full rounded-2xl bg-black object-contain"
-              />
+
+              {playingTheme.videoUrl ? (
+                <video
+                  key={playingTheme.videoUrl}
+                  src={playingTheme.videoUrl}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="aspect-video max-h-96 w-full rounded-2xl bg-black object-contain"
+                />
+              ) : (
+                <iframe
+                  key={playingTheme.id}
+                  src={getPlayerEmbedUrl(playingTheme)}
+                  title={`${playingTheme.slug} - ${playingTheme.songTitle}`}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="aspect-video max-h-96 w-full rounded-2xl border-0 bg-black"
+                />
+              )}
             </div>
           )}
 
@@ -446,16 +467,14 @@ export function AnimeDetailView({ id }: { id: number }) {
                               </p>
                             )}
                           </div>
-                          {op.videoUrl && (
-                            <button
-                              type="button"
-                              onClick={() => setPlayingTheme(isPlaying ? null : op)}
-                              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
-                            >
-                              <Play className="size-3 fill-current" />
-                              {isPlaying ? 'Playing' : 'Preview'}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPlayingTheme(isPlaying ? null : op)}
+                            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
+                          >
+                            <Play className="size-3 fill-current" />
+                            {isPlaying ? 'Playing' : 'Play'}
+                          </button>
                         </div>
                       )
                     })}
@@ -498,16 +517,14 @@ export function AnimeDetailView({ id }: { id: number }) {
                               </p>
                             )}
                           </div>
-                          {ed.videoUrl && (
-                            <button
-                              type="button"
-                              onClick={() => setPlayingTheme(isPlaying ? null : ed)}
-                              className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
-                            >
-                              <Play className="size-3 fill-current" />
-                              {isPlaying ? 'Playing' : 'Preview'}
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPlayingTheme(isPlaying ? null : ed)}
+                            className="inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-bold text-white active-pill transition-opacity hover:opacity-90"
+                          >
+                            <Play className="size-3 fill-current" />
+                            {isPlaying ? 'Playing' : 'Play'}
+                          </button>
                         </div>
                       )
                     })}
