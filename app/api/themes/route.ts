@@ -26,16 +26,17 @@ function decodeHtml(str: string): string {
 function parseMalHtmlThemes(html: string): ThemeItem[] {
   const results: ThemeItem[] = []
 
-  const extractSection = (startMarker: string, endMarkers: string[], type: 'OP' | 'ED') => {
-    const startIdx = html.indexOf(startMarker)
-    if (startIdx === -1) return
+  const extractSection = (startRegex: RegExp, endMarkers: string[], type: 'OP' | 'ED') => {
+    const startMatch = startRegex.exec(html)
+    if (!startMatch) return
 
+    const contentStart = startMatch.index + startMatch[0].length
     let endIdx = html.length
     for (const marker of endMarkers) {
-      const found = html.indexOf(marker, startIdx + startMarker.length)
+      const found = html.indexOf(marker, contentStart)
       if (found !== -1 && found < endIdx) endIdx = found
     }
-    const section = html.slice(startIdx, endIdx)
+    const section = html.slice(contentStart, endIdx)
 
     // 1. Modern MAL markup: <span class="theme-song-title"> & <span class="theme-song-artist">
     const songTitleRegex = /class="theme-song-title"[^>]*>([\s\S]*?)<\/span>/gi
@@ -48,8 +49,12 @@ function parseMalHtmlThemes(html: string): ThemeItem[] {
     let m: RegExpExecArray | null
 
     while ((m = songTitleRegex.exec(section)) !== null) titles.push(decodeHtml(m[1]))
-    while ((m = artistRegex.exec(section)) !== null) artists.push(decodeHtml(m[1]).replace(/^by\s+/i, '').trim())
-    while ((m = epRegex.exec(section)) !== null) eps.push(decodeHtml(m[1]).replace(/^\(|\)$/g, '').replace(/^eps?\s*/i, '').trim())
+    while ((m = artistRegex.exec(section)) !== null) {
+      artists.push(decodeHtml(m[1]).replace(/^by\s+/i, '').trim())
+    }
+    while ((m = epRegex.exec(section)) !== null) {
+      eps.push(decodeHtml(m[1]).replace(/^\(|\)$/g, '').replace(/^eps?\s*/i, '').trim())
+    }
 
     if (titles.length > 0) {
       titles.forEach((rawTitle, idx) => {
@@ -92,8 +97,8 @@ function parseMalHtmlThemes(html: string): ThemeItem[] {
     }
   }
 
-  extractSection('js-theme-songs opn', ['js-theme-songs ed', '<h2>', '<div class="border_top'], 'OP')
-  extractSection('js-theme-songs ed', ['<h2>', '<div class="border_top', 'detail-characters-list'], 'ED')
+  extractSection(/class="[^"]*js-theme-songs[^"]*opn[^"]*"/i, ['js-theme-songs', 'Ending Theme', '<h2>'], 'OP')
+  extractSection(/class="[^"]*js-theme-songs[^"]*ed[^"]*"/i, ['<h2>', 'detail-characters-list', 'class="border_top'], 'ED')
 
   return results
 }
@@ -107,7 +112,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Resolve exact idMal from AniList GraphQL
     const gqlRes = await fetch('https://graphql.anilist.co', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -125,7 +129,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ themes: [], error: 'No MAL ID found' })
     }
 
-    // 2. Fetch directly from MyAnimeList's official anime page
     const malRes = await fetch(`https://myanimelist.net/anime/${malId}`, {
       headers: {
         'User-Agent':
