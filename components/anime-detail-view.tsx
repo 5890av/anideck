@@ -65,64 +65,17 @@ function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeTheme
     type,
     slug: `${type}${idx + 1}`,
     songTitle: withoutEp || `${type} ${idx + 1}`,
-    artists: [],
-    episodes,
-    videoUrl: null,
-  }
-}
-
-async function fetchTimed(url: string, init?: RequestInit, ms = 6000) {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), ms)
+    async function fetchThemesDirectly(anilistId: number): Promise<AnimeThemeItem[]> {
   try {
-    return await fetch(url, { ...init, signal: controller.signal })
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
-
-async function fetchThemesDirectly(anilistId: number): Promise<AnimeThemeItem[]> {
-  // 1. Resolve exact MyAnimeList ID (idMal) from AniList GraphQL
-  let malId: number | null = null
-  let fallbackTitle = ''
-  try {
-    const gqlRes = await fetchTimed(
-      'https://graphql.anilist.co',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal title { romaji english } } }',
-          variables: { id: anilistId },
-        }),
-      },
-      5000,
-    )
-    if (gqlRes.ok) {
-      const gqlJson = await gqlRes.json()
-      const m = gqlJson?.data?.Media
-      malId = m?.idMal ?? null
-      fallbackTitle = m?.title?.romaji || m?.title?.english || ''
-    }
+    const res = await fetch(`/api/themes?id=${encodeURIComponent(String(anilistId))}`)
+    if (!res.ok) return []
+    const json = await res.json()
+    return Array.isArray(json?.themes) ? json.themes : []
   } catch {
-    // Fall through to title search
+    return []
   }
+}
 
-  // 2. Fallback MAL search by title if idMal was null
-  if (!malId && fallbackTitle) {
-    try {
-      const searchRes = await fetchTimed(
-        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(fallbackTitle)}&limit=1`,
-        undefined,
-        5000,
-      )
-      if (searchRes.ok) {
-        const searchJson = await searchRes.json()
-        malId = searchJson?.data?.[0]?.mal_id ?? null
-      }
-    } catch {
-      // Ignore
-    }
   }
 
   // 3. Fetch full OP/ED list directly from MyAnimeList (Jikan)
