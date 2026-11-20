@@ -41,65 +41,23 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
-async function fetchThemesFromAnimeThemes(
-  anilistId: number,
+async function fetchThemesViaServer(
+  searchTitle: string,
+  seasonYear?: number | null,
 ): Promise<{ themes: AnimeThemeItem[]; debug?: string }> {
   try {
-    // 1. Get Romaji / English title & seasonYear from AniList GraphQL (confirmed working on your device)
-    const gqlRes = await fetch('https://graphql.anilist.co', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        query: 'query ($id: Int) { Media(id: $id, type: ANIME) { seasonYear title { romaji english } } }',
-        variables: { id: anilistId },
-      }),
-    })
-    if (!gqlRes.ok) return { themes: [], debug: `AniList HTTP ${gqlRes.status}` }
-
-    const gqlJson = await gqlRes.json()
-    const m = gqlJson?.data?.Media
-    const queryTitle: string = m?.title?.romaji || m?.title?.english || ''
-    const seasonYear: number | null = m?.seasonYear ?? null
-    if (!queryTitle) return { themes: [], debug: 'Title unavailable' }
-
-    // 2. Query AnimeThemes search API directly in Safari (returns songs + artists + video previews)
-    const atUrl = `https://api.animethemes.moe/anime?q=${encodeURIComponent(queryTitle)}&page[size]=5&include=animethemes.song.artists,animethemes.animethemeentries.videos`
-    const atRes = await fetch(atUrl, { headers: { Accept: 'application/json' } })
-    if (!atRes.ok) return { themes: [], debug: `AnimeThemes HTTP ${atRes.status}` }
-
-    const atJson = await atRes.json()
-    const candidates: any[] = Array.isArray(atJson?.anime) ? atJson.anime : []
-    if (candidates.length === 0) {
-      return { themes: [], debug: `No AnimeThemes match for "${queryTitle}"` }
+    const params = new URLSearchParams({ title: searchTitle })
+    if (seasonYear) params.set('year', String(seasonYear))
+    const res = await fetch(`/api/themes?${params.toString()}`)
+    if (!res.ok) return { themes: [], debug: `Route HTTP ${res.status}` }
+    const json = await res.json()
+    const themes = Array.isArray(json?.themes) ? json.themes : []
+    return {
+      themes,
+      debug: themes.length === 0 ? json?.error || 'No themes found' : undefined,
     }
-
-    // Prefer exact seasonYear match if available, otherwise take top result
-    const bestMatch =
-      (seasonYear ? candidates.find((c) => Number(c?.year) === Number(seasonYear)) : null) || candidates[0]
-
-    const rawThemes: any[] = Array.isArray(bestMatch?.animethemes) ? bestMatch.animethemes : []
-    const themes: AnimeThemeItem[] = rawThemes.map((t, i) => {
-      const song = t?.song ?? {}
-      const artistsArr: any[] = Array.isArray(song.artists) ? song.artists : []
-      const entries: any[] = Array.isArray(t?.animethemeentries) ? t.animethemeentries : []
-      const firstEntry = entries[0] ?? {}
-      const videos: any[] = Array.isArray(firstEntry.videos) ? firstEntry.videos : []
-      const firstVideo = videos[0] ?? {}
-
-      return {
-        id: `at-${t?.id ?? i}`,
-        type: t?.type === 'ED' ? 'ED' : 'OP',
-        slug: String(t?.slug || t?.type || `OP${i + 1}`),
-        songTitle: typeof song.title === 'string' && song.title ? song.title : 'Untitled Theme',
-        artists: artistsArr.map((a) => (typeof a?.name === 'string' ? a.name : '')).filter(Boolean),
-        episodes: typeof firstEntry.episodes === 'string' && firstEntry.episodes ? firstEntry.episodes : null,
-        videoUrl: typeof firstVideo.link === 'string' ? firstVideo.link : null,
-      }
-    })
-
-    return { themes, debug: themes.length === 0 ? 'No themes indexed on AnimeThemes' : undefined }
   } catch (err: any) {
-    return { themes: [], debug: err?.message || 'Network error' }
+    return { themes: [], debug: err?.message || 'Fetch error' }
   }
 }
 
@@ -111,14 +69,19 @@ export function AnimeDetailView({ id }: { id: number }) {
   const [themesLoading, setThemesLoading] = useState(true)
   const [playingTheme, setPlayingTheme] = useState<AnimeThemeItem | null>(null)
 
+  const media = data?.Media
+  const queryTitle = media?.title?.romaji || media?.title?.english || ''
+  const seasonYear = media?.seasonYear ?? null
+
   useEffect(() => {
+    if (!queryTitle) return
     let active = true
     setThemesLoading(true)
     setThemes([])
     setThemesDebug(undefined)
     setPlayingTheme(null)
 
-    fetchThemesFromAnimeThemes(id)
+    fetchThemesViaServer(queryTitle, seasonYear)
       .then((res) => {
         if (active) {
           setThemes(res.themes)
@@ -132,9 +95,7 @@ export function AnimeDetailView({ id }: { id: number }) {
     return () => {
       active = false
     }
-  }, [id])
-
-  const media = data?.Media
+  }, [id, queryTitle, seasonYear])
 
   if (error && !media) {
     return (
