@@ -4,7 +4,19 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
-import { ArrowRight, Dices, Flame, Play, Plus, Sparkles, Star, Tv } from 'lucide-react'
+import {
+  ArrowRight,
+  Dices,
+  Dna,
+  Flame,
+  Play,
+  Plus,
+  Radar,
+  Sparkles,
+  Star,
+  Trophy,
+  Tv,
+} from 'lucide-react'
 import { displayTitle, formatEnum, HOME_QUERY, SEARCH_QUERY, type MediaCard } from '@/lib/anilist'
 import { incrementProgress, updateEntry, useWatchlist } from '@/lib/watchlist'
 import { cn } from '@/lib/utils'
@@ -14,6 +26,33 @@ import { GenreBar } from './genre-bar'
 type HomeData = Record<'trending' | 'airing' | 'upcoming', { media: MediaCard[] }>
 
 const AUTO_SCROLL_MS = 4000
+
+const STUDIO_TOOLS = [
+  {
+    href: '/roulette',
+    title: 'Mood Roulette',
+    subtitle: 'Shuffle & deal a random pick',
+    icon: Dices,
+  },
+  {
+    href: '/dna',
+    title: 'DNA Finder',
+    subtitle: 'Shared seiyuu & studios',
+    icon: Dna,
+  },
+  {
+    href: '/tierlist',
+    title: 'Tier List',
+    subtitle: 'Rank & export PNG cards',
+    icon: Trophy,
+  },
+  {
+    href: '/radar',
+    title: 'Sequel Radar',
+    subtitle: 'Missing sequels & blind spots',
+    icon: Radar,
+  },
+] as const
 
 export function HomeView() {
   const router = useRouter()
@@ -189,7 +228,7 @@ export function HomeView() {
                 )}
               </div>
 
-              {/* Right-Hand Translucent Quick-Select Dock (Matches Cinema Preview) */}
+              {/* Right-Hand Translucent Quick-Select Dock */}
               <div className="glass-panel hidden lg:flex flex-col justify-between gap-2 rounded-3xl p-3">
                 <div className="flex items-center justify-between px-2 pt-1">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -243,6 +282,32 @@ export function HomeView() {
         )}
 
         <GenreBar selected={genre} onSelect={selectGenre} />
+
+        {/* Anideck Studio Quick-Access Launcher Bar */}
+        {!genre && (
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            {STUDIO_TOOLS.map((tool) => {
+              const Icon = tool.icon
+              return (
+                <Link
+                  key={tool.href}
+                  href={tool.href}
+                  className="glass-card group flex items-center gap-3 rounded-2xl p-3"
+                >
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-primary/30 bg-primary/15 text-primary transition-colors group-hover:bg-primary group-hover:text-white">
+                    <Icon className="size-4.5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-bold text-white group-hover:text-primary">
+                      {tool.title}
+                    </p>
+                    <p className="truncate text-[11px] text-muted-foreground">{tool.subtitle}</p>
+                  </div>
+                </Link>
+              )
+            })}
+          </div>
+        )}
       </section>
 
       {/* Glassmorphic Continue Watching Shelf */}
