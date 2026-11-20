@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import useSWR from 'swr'
 import {
@@ -71,12 +71,22 @@ function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeTheme
   }
 }
 
-async function fetchAnimeThemes(anilistId: number, searchTitle?: string): Promise<AnimeThemeItem[]> {
-  // 1. Try server route /api/themes first (provides AnimeThemes video previews)
+async function fetchTimed(url: string, ms = 4500) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { signal: controller.signal })
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+async function fetchAnimeThemes([, anilistId, searchTitle]: [string, number, string]): Promise<AnimeThemeItem[]> {
+  // 1. Try server route /api/themes (has 4.5s hard timeout)
   try {
     const params = new URLSearchParams({ id: String(anilistId) })
     if (searchTitle) params.set('title', searchTitle)
-    const res = await fetch(`/api/themes?${params.toString()}`)
+    const res = await fetchTimed(`/api/themes?${params.toString()}`, 4500)
     if (res.ok) {
       const json = await res.json()
       if (Array.isArray(json?.themes) && json.themes.length > 0) {
@@ -87,48 +97,27 @@ async function fetchAnimeThemes(anilistId: number, searchTitle?: string): Promis
     // Fall through to direct browser lookup
   }
 
-  // 2. Direct browser lookup: resolve exact idMal from AniList, then fetch Jikan themes
-  let malId: number | null = null
+  // 2. Direct browser fallback via AniList idMal + Jikan
   try {
     const malData = await anilist<{ Media: { idMal: number | null } }>(
       'query ($id: Int) { Media(id: $id, type: ANIME) { idMal } }',
       { id: anilistId },
     )
-    malId = malData?.Media?.idMal ?? null
-  } catch {
-    // Ignore GraphQL lookup failure
-  }
-
-  if (!malId && searchTitle) {
-    try {
-      const searchRes = await fetch(
-        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
-      )
-      if (searchRes.ok) {
-        const searchJson = await searchRes.json()
-        malId = searchJson?.data?.[0]?.mal_id ?? null
-      }
-    } catch {
-      // Ignore search failure
-    }
-  }
-
-  if (malId) {
-    try {
-      const jikanRes = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`)
+    const malId = malData?.Media?.idMal
+    if (malId) {
+      const jikanRes = await fetchTimed(`https://api.jikan.moe/v4/anime/${malId}/themes`, 5000)
       if (jikanRes.ok) {
         const jikanJson = await jikanRes.json()
         const ops: string[] = Array.isArray(jikanJson?.data?.openings) ? jikanJson.data.openings : []
         const eds: string[] = Array.isArray(jikanJson?.data?.endings) ? jikanJson.data.endings : []
-        const combined = [
+        return [
           ...ops.map((raw, idx) => parseJikanLine(raw, 'OP', idx)),
           ...eds.map((raw, idx) => parseJikanLine(raw, 'ED', idx)),
         ]
-        if (combined.length > 0) return combined
       }
-    } catch {
-      // Ignore Jikan failure
     }
+  } catch {
+    // Return empty cleanly
   }
 
   return []
@@ -137,32 +126,16 @@ async function fetchAnimeThemes(anilistId: number, searchTitle?: string): Promis
 export function AnimeDetailView({ id }: { id: number }) {
   const { data, error, isLoading } = useSWR<{ Media: MediaDetail }>([MEDIA_DETAIL_QUERY, { id }])
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
-  const [themes, setThemes] = useState<AnimeThemeItem[]>([])
-  const [themesLoading, setThemesLoading] = useState(false)
   const [playingTheme, setPlayingTheme] = useState<AnimeThemeItem | null>(null)
 
   const media = data?.Media
-  const resolvedTitle = media ? displayTitle(media.title) : undefined
+  const resolvedTitle = media ? displayTitle(media.title) : ''
 
-  useEffect(() => {
-    if (!media) return
-    let cancelled = false
-    setThemesLoading(true)
-    setPlayingTheme(null)
-    fetchAnimeThemes(id, resolvedTitle)
-      .then((items) => {
-        if (!cancelled) setThemes(items)
-      })
-      .catch(() => {
-        if (!cancelled) setThemes([])
-      })
-      .finally(() => {
-        if (!cancelled) setThemesLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [id, media, resolvedTitle])
+  const { data: themes = [], isLoading: themesLoading } = useSWR<AnimeThemeItem[]>(
+    media ? ['anime-themes', id, resolvedTitle] : null,
+    fetchAnimeThemes,
+    { revalidateOnFocus: false, shouldRetryOnError: false },
+  )
 
   if (error && !media) {
     return (
@@ -359,7 +332,10 @@ export function AnimeDetailView({ id }: { id: number }) {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id)
+                  setPlayingTheme(null)
+                }}
                 className={cn(
                   'inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold transition-all',
                   active
