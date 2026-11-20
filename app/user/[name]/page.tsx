@@ -9,11 +9,13 @@ import {
   ExternalLink,
   Film,
   Heart,
+  Link2,
   Sparkles,
   Star,
   Tv,
   UserCheck,
   UserPlus,
+  Users,
 } from 'lucide-react'
 import {
   anilist,
@@ -24,15 +26,38 @@ import {
 } from '@/lib/anilist'
 import { timeAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
+import { ConnectAniListButton } from '@/components/connect-anilist'
 
-const LOCAL_FOLLOWS_KEY = 'anideck_followed_users_v1'
-
-const USER_RELATION_QUERY = `
-  query UserRelation($id: Int) {
+const USER_SOCIAL_QUERY = `
+  query UserSocial($id: Int) {
     User(id: $id) {
       id
       isFollowing
       isFollower
+    }
+    followers: Page(page: 1, perPage: 1) {
+      pageInfo {
+        total
+      }
+      followers(userId: $id) {
+        id
+      }
+    }
+    following: Page(page: 1, perPage: 1) {
+      pageInfo {
+        total
+      }
+      following(userId: $id) {
+        id
+      }
+    }
+  }
+`
+
+const VIEWER_ID_QUERY = `
+  query ViewerIdentity {
+    Viewer {
+      id
     }
   }
 `
@@ -89,6 +114,12 @@ function getStoredAniListToken(): string | null {
   return null
 }
 
+type SocialResponse = {
+  User?: { id: number; isFollowing?: boolean; isFollower?: boolean }
+  followers?: { pageInfo?: { total?: number } }
+  following?: { pageInfo?: { total?: number } }
+}
+
 export default function UserProfilePage() {
   const params = useParams<{ name: string }>()
   const userName = decodeURIComponent(params?.name ?? '')
@@ -103,33 +134,63 @@ export default function UserProfilePage() {
   )
 
   const [token, setToken] = useState<string | null>(null)
-  const [localFollows, setLocalFollows] = useState<Record<number, boolean>>({})
-  const [remoteFollowing, setRemoteFollowing] = useState<boolean | null>(null)
-  const [isFollower, setIsFollower] = useState(false)
+  const [viewerId, setViewerId] = useState<number | null>(null)
+  const [remoteFollowing, setRemoteFollowing] = useState<boolean>(false)
+  const [isFollower, setIsFollower] = useState<boolean>(false)
+  const [followerCount, setFollowerCount] = useState<number | null>(null)
+  const [followingCount, setFollowingCount] = useState<number | null>(null)
   const [followBusy, setFollowBusy] = useState(false)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
 
   useEffect(() => {
-    setToken(getStoredAniListToken())
-    try {
-      const saved = window.localStorage.getItem(LOCAL_FOLLOWS_KEY)
-      if (saved) setLocalFollows(JSON.parse(saved))
-    } catch {
-      // ignore storage errors
+    const syncToken = () => setToken(getStoredAniListToken())
+    syncToken()
+    window.addEventListener('storage', syncToken)
+    window.addEventListener('focus', syncToken)
+    return () => {
+      window.removeEventListener('storage', syncToken)
+      window.removeEventListener('focus', syncToken)
     }
   }, [])
 
+  // Fetch viewer ID when synced so we don't show a Follow button on your own profile
   useEffect(() => {
-    if (!user?.id || !token) return
+    if (!token) {
+      setViewerId(null)
+      return
+    }
     let active = true
-    anilist<{ User?: { isFollowing?: boolean; isFollower?: boolean } }>(
-      USER_RELATION_QUERY,
-      { id: user.id },
-      token,
-    )
+    anilist<{ Viewer?: { id: number } }>(VIEWER_ID_QUERY, {}, token)
       .then((res) => {
-        if (!active || !res?.User) return
-        if (typeof res.User.isFollowing === 'boolean') setRemoteFollowing(res.User.isFollowing)
-        if (typeof res.User.isFollower === 'boolean') setIsFollower(res.User.isFollower)
+        if (active && res?.Viewer?.id) setViewerId(res.Viewer.id)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [token])
+
+  // Fetch public follower/following totals + authenticated follow relationship
+  useEffect(() => {
+    if (!user?.id) return
+    let active = true
+    anilist<SocialResponse>(USER_SOCIAL_QUERY, { id: user.id }, token ?? undefined)
+      .then((res) => {
+        if (!active) return
+        if (typeof res?.followers?.pageInfo?.total === 'number') {
+          setFollowerCount(res.followers.pageInfo.total)
+        }
+        if (typeof res?.following?.pageInfo?.total === 'number') {
+          setFollowingCount(res.following.pageInfo.total)
+        }
+        if (typeof res?.User?.isFollowing === 'boolean') {
+          setRemoteFollowing(res.User.isFollowing)
+        } else {
+          setRemoteFollowing(false)
+        }
+        if (typeof res?.User?.isFollower === 'boolean') {
+          setIsFollower(res.User.isFollower)
+        }
       })
       .catch(() => {})
     return () => {
@@ -137,46 +198,44 @@ export default function UserProfilePage() {
     }
   }, [user?.id, token])
 
-  const isFollowing = user
-    ? token && remoteFollowing !== null
-      ? remoteFollowing
-      : Boolean(localFollows[user.id])
-    : false
-
   const handleToggleFollow = async () => {
     if (!user || followBusy) return
 
-    if (!token) {
-      setLocalFollows((prev) => {
-        const next = { ...prev }
-        if (next[user.id]) delete next[user.id]
-        else next[user.id] = true
-        try {
-          window.localStorage.setItem(LOCAL_FOLLOWS_KEY, JSON.stringify(next))
-        } catch {
-          // ignore storage errors
-        }
-        return next
-      })
+    const latestToken = getStoredAniListToken()
+    if (!latestToken) {
+      setToken(null)
+      setSyncNotice('Sync your AniList account first to follow users.')
       return
     }
 
-    const prevState = isFollowing
-    const nextState = !prevState
+    setSyncNotice(null)
+    const prevFollowing = remoteFollowing
+    const nextFollowing = !prevFollowing
+    const prevFollowers = followerCount
+
     setFollowBusy(true)
-    setRemoteFollowing(nextState)
+    setRemoteFollowing(nextFollowing)
+    if (prevFollowers !== null) {
+      setFollowerCount(Math.max(0, prevFollowers + (nextFollowing ? 1 : -1)))
+    }
 
     try {
       const res = await anilist<{ ToggleFollow?: { id: number; isFollowing: boolean } }>(
         TOGGLE_FOLLOW_MUTATION,
         { userId: user.id },
-        token,
+        latestToken,
       )
       if (res?.ToggleFollow && typeof res.ToggleFollow.isFollowing === 'boolean') {
-        setRemoteFollowing(res.ToggleFollow.isFollowing)
+        const confirmed = res.ToggleFollow.isFollowing
+        setRemoteFollowing(confirmed)
+        if (prevFollowers !== null && confirmed !== nextFollowing) {
+          setFollowerCount(Math.max(0, prevFollowers + (confirmed ? 1 : -1)))
+        }
       }
     } catch {
-      setRemoteFollowing(prevState)
+      setRemoteFollowing(prevFollowing)
+      if (prevFollowers !== null) setFollowerCount(prevFollowers)
+      setSyncNotice('Could not update follow status on AniList. Please check your connection.')
     } finally {
       setFollowBusy(false)
     }
@@ -214,6 +273,7 @@ export default function UserProfilePage() {
   const stats = user.statistics.anime
   const hoursWatched = Math.round(stats.minutesWatched / 60)
   const daysWatched = (stats.minutesWatched / 1440).toFixed(1)
+  const isOwnProfile = viewerId !== null && viewerId === user.id
 
   return (
     <div className="flex flex-col gap-8">
@@ -265,43 +325,83 @@ export default function UserProfilePage() {
                   </span>
                 )}
               </div>
+
+              {/* Follower & Following Counts */}
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-300">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0E1015]/75 px-3 py-1">
+                  <Users className="size-3.5 text-primary" aria-hidden="true" />
+                  <strong className="font-extrabold text-white tabular-nums">
+                    {followerCount !== null ? followerCount.toLocaleString() : '—'}
+                  </strong>{' '}
+                  <span className="text-slate-400">Followers</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0E1015]/75 px-3 py-1">
+                  <strong className="font-extrabold text-white tabular-nums">
+                    {followingCount !== null ? followingCount.toLocaleString() : '—'}
+                  </strong>{' '}
+                  <span className="text-slate-400">Following</span>
+                </span>
+              </div>
+
               {user.about ? (
-                <p className="mt-2 line-clamp-3 max-w-2xl whitespace-pre-line text-xs leading-relaxed text-slate-300 sm:text-sm">
+                <p className="mt-2.5 line-clamp-3 max-w-2xl whitespace-pre-line text-xs leading-relaxed text-slate-300 sm:text-sm">
                   {user.about}
                 </p>
               ) : (
-                <p className="mt-1 text-xs font-medium text-slate-400">AniList Community Member</p>
+                <p className="mt-2 text-xs font-medium text-slate-400">AniList Community Member</p>
               )}
             </div>
           </div>
 
-          {/* Follow / Following Button */}
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={handleToggleFollow}
-              disabled={followBusy}
-              aria-pressed={isFollowing}
-              className={cn(
-                'inline-flex h-10 items-center gap-2 rounded-full px-5 text-xs font-extrabold transition-all hover:scale-[1.02] disabled:opacity-60',
-                isFollowing
-                  ? 'border border-[#FF6B4A]/50 bg-[#FF6B4A]/15 text-[#FF8E53]'
-                  : 'active-pill',
-              )}
-            >
-              {isFollowing ? (
-                <>
-                  <UserCheck className="size-4" aria-hidden="true" />
-                  Following
-                </>
+          {/* Follow Action (Requires Synced AniList Account) */}
+          {!isOwnProfile && (
+            <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
+              {token ? (
+                <button
+                  type="button"
+                  onClick={handleToggleFollow}
+                  disabled={followBusy}
+                  aria-pressed={remoteFollowing}
+                  className={cn(
+                    'inline-flex h-10 items-center gap-2 rounded-full px-5 text-xs font-extrabold transition-all hover:scale-[1.02] disabled:opacity-60',
+                    remoteFollowing
+                      ? 'border border-[#FF6B4A]/50 bg-[#FF6B4A]/15 text-[#FF8E53]'
+                      : 'active-pill',
+                  )}
+                >
+                  {remoteFollowing ? (
+                    <>
+                      <UserCheck className="size-4" aria-hidden="true" />
+                      Following
+                    </>
+                  ) : (
+                    <>
+                      <UserPlus className="size-4" aria-hidden="true" />
+                      Follow
+                    </>
+                  )}
+                </button>
               ) : (
-                <>
-                  <UserPlus className="size-4" aria-hidden="true" />
-                  Follow
-                </>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSyncNotice('Sync your AniList account to follow users.')}
+                    className="inline-flex h-10 items-center gap-2 rounded-full border border-white/12 bg-[#0E1015]/80 px-4 text-xs font-bold text-slate-400 transition-colors hover:border-primary/40 hover:text-slate-200"
+                    title="Sync your AniList account to follow users"
+                  >
+                    <Link2 className="size-3.5 text-primary" aria-hidden="true" />
+                    Sync AniList to Follow
+                  </button>
+                  <ConnectAniListButton variant="inline" />
+                </div>
               )}
-            </button>
-          </div>
+              {syncNotice && (
+                <p role="status" className="text-[11px] font-semibold text-upcoming">
+                  {syncNotice}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
