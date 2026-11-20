@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'dark',
-  themeColor: '#09090B',
+  themeColor: '#0E1015',
 }
 
 export default function RootLayout({
@@ -39,7 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body className="relative min-h-dvh bg-background text-foreground antialiased">
+      <body className="relative min-h-dvh bg-[#0E1015] text-foreground antialiased selection:bg-[#FF6B4A]/30 selection:text-white">
         <div className="bg-ambient-red" aria-hidden="true" />
         <Providers>
           <SiteHeader />
