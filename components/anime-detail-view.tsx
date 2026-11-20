@@ -41,100 +41,13 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
-function parseJikanThemeString(raw: string, type: 'OP' | 'ED', idx: number): AnimeThemeItem {
-  // Format examples: `1: "We Are!" by Hiroshi Kitadani (eps 1-47)` or `"Song Name" by Artist`
-  const cleaned = raw.replace(/^\d+:\s*/, '').trim()
-  const epMatch = cleaned.match(/\(([^)]+)\)\s*$/)
-  const episodes = epMatch ? epMatch[1].replace(/^eps?\s*/i, '') : null
-  const withoutEp = epMatch ? cleaned.slice(0, epMatch.index).trim() : cleaned
-
-  const titleMatch = withoutEp.match(/^"([^"]+)"\s*(?:by\s*(.+))?$/i)
-  if (titleMatch) {
-    return {
-      id: `jikan-${type}-${idx}`,
-      type,
-      slug: `${type}${idx + 1}`,
-      songTitle: titleMatch[1].trim(),
-      artists: titleMatch[2] ? [titleMatch[2].trim()] : [],
-      episodes,
-      videoUrl: null,
-    }
-  }
-
-  return {
-    id: `jikan-${type}-${idx}`,
-    type,
-    slug: `${type}${idx + 1}`,
-    songTitle: withoutEp || `${type} ${idx + 1}`,
-    artists: [],
-    episodes,
-    videoUrl: null,
-  }
-}
-
 async function fetchAnimeThemes(anilistId: number, searchTitle?: string): Promise<AnimeThemeItem[]> {
-  // 1. Try AnimeThemes API (lowercase 'anilist' site filter + resources included)
-  try {
-    const url = `https://api.animethemes.moe/anime?filter[has]=resources&filter[site]=anilist&filter[external_id]=${anilistId}&include=resources,animethemes.song.artists,animethemes.animethemeentries.videos`
-    const res = await fetch(url, { headers: { Accept: 'application/json' } })
-    if (res.ok) {
-      const json = await res.json()
-      const anime = Array.isArray(json?.anime) ? json.anime[0] : null
-      if (Array.isArray(anime?.animethemes) && anime.animethemes.length > 0) {
-        return anime.animethemes.map((theme: Record<string, unknown>, i: number) => {
-          const song = (theme.song as Record<string, unknown>) ?? {}
-          const artistsArr = Array.isArray(song.artists) ? song.artists : []
-          const entries = Array.isArray(theme.animethemeentries) ? theme.animethemeentries : []
-          const firstEntry = (entries[0] as Record<string, unknown>) ?? {}
-          const videos = Array.isArray(firstEntry.videos) ? firstEntry.videos : []
-          const firstVideo = (videos[0] as Record<string, unknown>) ?? {}
-
-          return {
-            id: `at-${theme.id ?? i}`,
-            type: theme.type === 'ED' ? 'ED' : 'OP',
-            slug: String(theme.slug || theme.type || `OP${i + 1}`),
-            songTitle: typeof song.title === 'string' && song.title ? song.title : 'Untitled Theme',
-            artists: artistsArr
-              .map((a: Record<string, unknown>) => (typeof a.name === 'string' ? a.name : ''))
-              .filter(Boolean),
-            episodes: typeof firstEntry.episodes === 'string' && firstEntry.episodes ? firstEntry.episodes : null,
-            videoUrl: typeof firstVideo.link === 'string' ? firstVideo.link : null,
-          }
-        })
-      }
-    }
-  } catch {
-    // Fall through to Jikan backup
-  }
-
-  // 2. Fallback: Jikan (MyAnimeList) search + themes endpoint
-  if (searchTitle) {
-    try {
-      const searchRes = await fetch(
-        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
-      )
-      if (searchRes.ok) {
-        const searchJson = await searchRes.json()
-        const malId = searchJson?.data?.[0]?.mal_id
-        if (malId) {
-          const themesRes = await fetch(`https://api.jikan.moe/v4/anime/${malId}/themes`)
-          if (themesRes.ok) {
-            const themesJson = await themesRes.json()
-            const ops: string[] = Array.isArray(themesJson?.data?.openings) ? themesJson.data.openings : []
-            const eds: string[] = Array.isArray(themesJson?.data?.endings) ? themesJson.data.endings : []
-            return [
-              ...ops.map((raw, idx) => parseJikanThemeString(raw, 'OP', idx)),
-              ...eds.map((raw, idx) => parseJikanThemeString(raw, 'ED', idx)),
-            ]
-          }
-        }
-      }
-    } catch {
-      // Ignore fallback error
-    }
-  }
-
-  return []
+  const params = new URLSearchParams({ id: String(anilistId) })
+  if (searchTitle) params.set('title', searchTitle)
+  const res = await fetch(`/api/themes?${params.toString()}`)
+  if (!res.ok) return []
+  const json = await res.json()
+  return Array.isArray(json?.themes) ? json.themes : []
 }
 
 export function AnimeDetailView({ id }: { id: number }) {
