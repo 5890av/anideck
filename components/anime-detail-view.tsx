@@ -21,7 +21,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react'
-import { anilist, displayTitle, formatEnum, formatFuzzyDate, MEDIA_DETAIL_QUERY, type MediaDetail } from '@/lib/anilist'
+import { displayTitle, formatEnum, formatFuzzyDate, MEDIA_DETAIL_QUERY, type MediaDetail } from '@/lib/anilist'
 import { cn } from '@/lib/utils'
 import { AiringCountdown, StatusBadge } from './status-badge'
 import { RichDescription } from './rich-description'
@@ -71,22 +71,24 @@ function parseJikanLine(raw: string, type: 'OP' | 'ED', idx: number): AnimeTheme
   }
 }
 
-async function fetchTimed(url: string, ms = 4500) {
+async function fetchTimed(url: string, init?: RequestInit, ms = 6000) {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), ms)
   try {
-    return await fetch(url, { signal: controller.signal })
+    return await fetch(url, { ...init, signal: controller.signal })
   } finally {
     window.clearTimeout(timer)
   }
 }
 
-async function fetchAnimeThemes([, anilistId, searchTitle]: [string, number, string]): Promise<AnimeThemeItem[]> {
-  // 1. Try server route /api/themes (has 4.5s hard timeout)
+async function loadThemesForAnime(key: [string, number, string]): Promise<AnimeThemeItem[]> {
+  const [, anilistId, searchTitle] = key
+
+  // 1. Try server route /api/themes first (gives AnimeThemes video previews)
   try {
     const params = new URLSearchParams({ id: String(anilistId) })
     if (searchTitle) params.set('title', searchTitle)
-    const res = await fetchTimed(`/api/themes?${params.toString()}`, 4500)
+    const res = await fetchTimed(`/api/themes?${params.toString()}`, undefined, 4500)
     if (res.ok) {
       const json = await res.json()
       if (Array.isArray(json?.themes) && json.themes.length > 0) {
@@ -94,18 +96,53 @@ async function fetchAnimeThemes([, anilistId, searchTitle]: [string, number, str
       }
     }
   } catch {
-    // Fall through to direct browser lookup
+    // Fall through to direct browser fetch
   }
 
-  // 2. Direct browser fallback via AniList idMal + Jikan
+  // 2. Direct browser fetch: get idMal directly from AniList GraphQL
+  let malId: number | null = null
   try {
-    const malData = await anilist<{ Media: { idMal: number | null } }>(
-      'query ($id: Int) { Media(id: $id, type: ANIME) { idMal } }',
-      { id: anilistId },
+    const gqlRes = await fetchTimed(
+      'https://graphql.anilist.co',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          query: 'query ($id: Int) { Media(id: $id, type: ANIME) { idMal } }',
+          variables: { id: anilistId },
+        }),
+      },
+      5000,
     )
-    const malId = malData?.Media?.idMal
-    if (malId) {
-      const jikanRes = await fetchTimed(`https://api.jikan.moe/v4/anime/${malId}/themes`, 5000)
+    if (gqlRes.ok) {
+      const gqlJson = await gqlRes.json()
+      malId = gqlJson?.data?.Media?.idMal ?? null
+    }
+  } catch {
+    // Fall through to Jikan title search
+  }
+
+  // 3. Fallback title search on Jikan if idMal wasn't returned
+  if (!malId && searchTitle) {
+    try {
+      const searchRes = await fetchTimed(
+        `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(searchTitle)}&limit=1`,
+        undefined,
+        5000,
+      )
+      if (searchRes.ok) {
+        const searchJson = await searchRes.json()
+        malId = searchJson?.data?.[0]?.mal_id ?? null
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  // 4. Fetch themes directly from Jikan in the browser
+  if (malId) {
+    try {
+      const jikanRes = await fetchTimed(`https://api.jikan.moe/v4/anime/${malId}/themes`, undefined, 6000)
       if (jikanRes.ok) {
         const jikanJson = await jikanRes.json()
         const ops: string[] = Array.isArray(jikanJson?.data?.openings) ? jikanJson.data.openings : []
@@ -115,9 +152,9 @@ async function fetchAnimeThemes([, anilistId, searchTitle]: [string, number, str
           ...eds.map((raw, idx) => parseJikanLine(raw, 'ED', idx)),
         ]
       }
+    } catch {
+      // Ignore
     }
-  } catch {
-    // Return empty cleanly
   }
 
   return []
@@ -132,8 +169,8 @@ export function AnimeDetailView({ id }: { id: number }) {
   const resolvedTitle = media ? displayTitle(media.title) : ''
 
   const { data: themes = [], isLoading: themesLoading } = useSWR<AnimeThemeItem[]>(
-    media ? ['anime-themes', id, resolvedTitle] : null,
-    fetchAnimeThemes,
+    media ? ['anime-themes-v2', id, resolvedTitle] : null,
+    (key: [string, number, string]) => loadThemesForAnime(key),
     { revalidateOnFocus: false, shouldRetryOnError: false },
   )
 
