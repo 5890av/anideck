@@ -41,14 +41,20 @@ type AnimeThemeItem = {
   videoUrl: string | null
 }
 
-async function fetchThemesFromApi(anilistId: number): Promise<AnimeThemeItem[]> {
+async function fetchThemesFromApi(anilistId: number): Promise<{ themes: AnimeThemeItem[]; debug?: string }> {
   try {
     const res = await fetch(`/api/themes?id=${encodeURIComponent(String(anilistId))}`)
-    if (!res.ok) return []
+    if (!res.ok) {
+      return { themes: [], debug: `API route HTTP ${res.status}` }
+    }
     const json = await res.json()
-    return Array.isArray(json?.themes) ? json.themes : []
-  } catch {
-    return []
+    const themes = Array.isArray(json?.themes) ? json.themes : []
+    return {
+      themes,
+      debug: themes.length === 0 ? json?.error || 'API returned 0 themes' : undefined,
+    }
+  } catch (err: any) {
+    return { themes: [], debug: err?.message || 'Network error calling /api/themes' }
   }
 }
 
@@ -56,6 +62,7 @@ export function AnimeDetailView({ id }: { id: number }) {
   const { data, error, isLoading } = useSWR<{ Media: MediaDetail }>([MEDIA_DETAIL_QUERY, { id }])
   const [activeTab, setActiveTab] = useState<DetailTab>('overview')
   const [themes, setThemes] = useState<AnimeThemeItem[]>([])
+  const [themesDebug, setThemesDebug] = useState<string | undefined>(undefined)
   const [themesLoading, setThemesLoading] = useState(true)
   const [playingTheme, setPlayingTheme] = useState<AnimeThemeItem | null>(null)
 
@@ -63,11 +70,15 @@ export function AnimeDetailView({ id }: { id: number }) {
     let active = true
     setThemesLoading(true)
     setThemes([])
+    setThemesDebug(undefined)
     setPlayingTheme(null)
 
     fetchThemesFromApi(id)
-      .then((items) => {
-        if (active) setThemes(items)
+      .then((res) => {
+        if (active) {
+          setThemes(res.themes)
+          setThemesDebug(res.debug)
+        }
       })
       .finally(() => {
         if (active) setThemesLoading(false)
@@ -387,7 +398,10 @@ export function AnimeDetailView({ id }: { id: number }) {
             </div>
           ) : themes.length === 0 ? (
             <div className="glass-panel rounded-3xl p-8 text-center text-sm text-muted-foreground">
-              No opening or ending theme songs indexed yet for this title.
+              <p>No opening or ending theme songs indexed yet for this title.</p>
+              {themesDebug && (
+                <p className="mt-2 font-mono text-xs text-primary/80">Status: {themesDebug}</p>
+              )}
             </div>
           ) : (
             <div className="grid gap-6 md:grid-cols-2">
