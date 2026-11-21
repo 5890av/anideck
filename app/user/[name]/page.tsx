@@ -16,6 +16,7 @@ import {
   UserCheck,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react'
 import {
   anilist,
@@ -28,27 +29,43 @@ import { timeAgo } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { ConnectAniListButton } from '@/components/connect-anilist'
 
-const USER_SOCIAL_QUERY = `
-  query UserSocial($id: Int) {
+const USER_RELATION_QUERY = `
+  query UserRelation($id: Int) {
     User(id: $id) {
       id
       isFollowing
       isFollower
     }
-    followers: Page(page: 1, perPage: 1) {
+  }
+`
+
+const USER_FOLLOWERS_QUERY = `
+  query UserFollowers($userId: Int!, $page: Int) {
+    Page(page: $page, perPage: 50) {
       pageInfo {
         total
+        hasNextPage
       }
-      followers(userId: $id) {
+      followers(userId: $userId, sort: USERNAME) {
         id
+        name
+        avatar { medium }
       }
     }
-    following: Page(page: 1, perPage: 1) {
+  }
+`
+
+const USER_FOLLOWING_QUERY = `
+  query UserFollowing($userId: Int!, $page: Int) {
+    Page(page: $page, perPage: 50) {
       pageInfo {
         total
+        hasNextPage
       }
-      following(userId: $id) {
+      following(userId: $userId, sort: USERNAME) {
         id
+        name
+        avatar { medium }
       }
     }
   }
@@ -114,10 +131,24 @@ function getStoredAniListToken(): string | null {
   return null
 }
 
-type SocialResponse = {
-  User?: { id: number; isFollowing?: boolean; isFollower?: boolean }
-  followers?: { pageInfo?: { total?: number } }
-  following?: { pageInfo?: { total?: number } }
+type FollowUserItem = {
+  id: number
+  name: string
+  avatar: { medium: string | null }
+}
+
+type FollowersResponse = {
+  Page?: {
+    pageInfo?: { total?: number; hasNextPage?: boolean }
+    followers?: FollowUserItem[]
+  }
+}
+
+type FollowingResponse = {
+  Page?: {
+    pageInfo?: { total?: number; hasNextPage?: boolean }
+    following?: FollowUserItem[]
+  }
 }
 
 export default function UserProfilePage() {
@@ -137,13 +168,21 @@ export default function UserProfilePage() {
   const [viewerId, setViewerId] = useState<number | null>(null)
   const [remoteFollowing, setRemoteFollowing] = useState<boolean>(false)
   const [isFollower, setIsFollower] = useState<boolean>(false)
+  const [followersList, setFollowersList] = useState<FollowUserItem[]>([])
+  const [followingList, setFollowingList] = useState<FollowUserItem[]>([])
   const [followerCount, setFollowerCount] = useState<number | null>(null)
   const [followingCount, setFollowingCount] = useState<number | null>(null)
+  const [socialAuthBlocked, setSocialAuthBlocked] = useState(false)
+  const [followModalTab, setFollowModalTab] = useState<'followers' | 'following' | null>(null)
   const [followBusy, setFollowBusy] = useState(false)
   const [syncNotice, setSyncNotice] = useState<string | null>(null)
 
   useEffect(() => {
-    const syncToken = () => setToken(getStoredAniListToken())
+    const syncToken = () => {
+      const current = getStoredAniListToken()
+      setToken(current)
+      if (current) setSyncNotice(null)
+    }
     syncToken()
     window.addEventListener('storage', syncToken)
     window.addEventListener('focus', syncToken)
@@ -170,29 +209,57 @@ export default function UserProfilePage() {
     }
   }, [token])
 
-  // Fetch public follower/following totals + authenticated follow relationship
+  // Fetch follow relationship + Followers & Following lists independently
   useEffect(() => {
     if (!user?.id) return
     let active = true
-    anilist<SocialResponse>(USER_SOCIAL_QUERY, { id: user.id }, token ?? undefined)
+    setSocialAuthBlocked(false)
+
+    if (token) {
+      anilist<{ User?: { isFollowing?: boolean; isFollower?: boolean } }>(
+        USER_RELATION_QUERY,
+        { id: user.id },
+        token,
+      )
+        .then((res) => {
+          if (!active || !res?.User) return
+          setRemoteFollowing(Boolean(res.User.isFollowing))
+          setIsFollower(Boolean(res.User.isFollower))
+        })
+        .catch(() => {})
+    } else {
+      setRemoteFollowing(false)
+      setIsFollower(false)
+    }
+
+    anilist<FollowersResponse>(USER_FOLLOWERS_QUERY, { userId: user.id, page: 1 }, token ?? undefined)
       .then((res) => {
         if (!active) return
-        if (typeof res?.followers?.pageInfo?.total === 'number') {
-          setFollowerCount(res.followers.pageInfo.total)
-        }
-        if (typeof res?.following?.pageInfo?.total === 'number') {
-          setFollowingCount(res.following.pageInfo.total)
-        }
-        if (typeof res?.User?.isFollowing === 'boolean') {
-          setRemoteFollowing(res.User.isFollowing)
-        } else {
-          setRemoteFollowing(false)
-        }
-        if (typeof res?.User?.isFollower === 'boolean') {
-          setIsFollower(res.User.isFollower)
-        }
+        const list = (res?.Page?.followers ?? []).filter((u): u is FollowUserItem => Boolean(u?.id))
+        const total = res?.Page?.pageInfo?.total
+        setFollowersList(list)
+        setFollowerCount(typeof total === 'number' && total > 0 ? Math.max(total, list.length) : list.length)
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!active) return
+        if (!token) setSocialAuthBlocked(true)
+        setFollowerCount(null)
+      })
+
+    anilist<FollowingResponse>(USER_FOLLOWING_QUERY, { userId: user.id, page: 1 }, token ?? undefined)
+      .then((res) => {
+        if (!active) return
+        const list = (res?.Page?.following ?? []).filter((u): u is FollowUserItem => Boolean(u?.id))
+        const total = res?.Page?.pageInfo?.total
+        setFollowingList(list)
+        setFollowingCount(typeof total === 'number' && total > 0 ? Math.max(total, list.length) : list.length)
+      })
+      .catch(() => {
+        if (!active) return
+        if (!token) setSocialAuthBlocked(true)
+        setFollowingCount(null)
+      })
+
     return () => {
       active = false
     }
@@ -326,21 +393,29 @@ export default function UserProfilePage() {
                 )}
               </div>
 
-              {/* Follower & Following Counts */}
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-semibold text-slate-300">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0E1015]/75 px-3 py-1">
+              {/* Tappable Follower & Following Counts */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-2.5 text-xs font-semibold text-slate-300">
+                <button
+                  type="button"
+                  onClick={() => setFollowModalTab('followers')}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-[#0E1015]/80 px-3.5 py-1.5 transition-colors hover:border-primary/50 hover:text-white"
+                >
                   <Users className="size-3.5 text-primary" aria-hidden="true" />
                   <strong className="font-extrabold text-white tabular-nums">
-                    {followerCount !== null ? followerCount.toLocaleString() : '—'}
+                    {followerCount !== null ? followerCount.toLocaleString() : 'View'}
                   </strong>{' '}
                   <span className="text-slate-400">Followers</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0E1015]/75 px-3 py-1">
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFollowModalTab('following')}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/12 bg-[#0E1015]/80 px-3.5 py-1.5 transition-colors hover:border-primary/50 hover:text-white"
+                >
                   <strong className="font-extrabold text-white tabular-nums">
-                    {followingCount !== null ? followingCount.toLocaleString() : '—'}
+                    {followingCount !== null ? followingCount.toLocaleString() : 'View'}
                   </strong>{' '}
                   <span className="text-slate-400">Following</span>
-                </span>
+                </button>
               </div>
 
               {user.about ? (
@@ -404,6 +479,21 @@ export default function UserProfilePage() {
           )}
         </div>
       </div>
+
+      {/* Followers / Following Modal */}
+      {followModalTab && (
+        <FollowListModal
+          userName={user.name}
+          activeTab={followModalTab}
+          onChangeTab={setFollowModalTab}
+          followers={followersList}
+          following={followingList}
+          followerCount={followerCount}
+          followingCount={followingCount}
+          requiresSync={socialAuthBlocked && !token}
+          onClose={() => setFollowModalTab(null)}
+        />
+      )}
 
       {/* 4 Editorial Bento KPI Cards */}
       <div className="bento-stat grid grid-cols-2 overflow-hidden rounded-3xl md:grid-cols-4">
@@ -584,6 +674,129 @@ export default function UserProfilePage() {
           </ul>
         </section>
       )}
+    </div>
+  )
+}
+
+function FollowListModal({
+  userName,
+  activeTab,
+  onChangeTab,
+  followers,
+  following,
+  followerCount,
+  followingCount,
+  requiresSync,
+  onClose,
+}: {
+  userName: string
+  activeTab: 'followers' | 'following'
+  onChangeTab: (tab: 'followers' | 'following') => void
+  followers: FollowUserItem[]
+  following: FollowUserItem[]
+  followerCount: number | null
+  followingCount: number | null
+  requiresSync: boolean
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const list = activeTab === 'followers' ? followers : following
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${userName} connections`}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[82vh] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0E1015] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 bg-[#161922]/85 px-4 py-3.5">
+          <div className="flex items-center gap-1.5 rounded-full border border-white/12 bg-[#0E1015] p-1">
+            <button
+              type="button"
+              onClick={() => onChangeTab('followers')}
+              className={cn(
+                'rounded-full px-3.5 py-1 text-xs font-extrabold transition-all',
+                activeTab === 'followers' ? 'active-pill' : 'text-slate-400 hover:text-white',
+              )}
+            >
+              Followers {followerCount !== null ? `(${followerCount})` : ''}
+            </button>
+            <button
+              type="button"
+              onClick={() => onChangeTab('following')}
+              className={cn(
+                'rounded-full px-3.5 py-1 text-xs font-extrabold transition-all',
+                activeTab === 'following' ? 'active-pill' : 'text-slate-400 hover:text-white',
+              )}
+            >
+              Following {followingCount !== null ? `(${followingCount})` : ''}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close list"
+            className="flex size-8 items-center justify-center rounded-full border border-white/12 bg-[#0E1015] text-slate-300 hover:text-white"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3.5">
+          {requiresSync && list.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+              <Link2 className="size-7 text-primary" aria-hidden="true" />
+              <p className="max-w-xs text-xs leading-relaxed text-slate-300">
+                AniList requires a synced account to view {userName}&apos;s followers and following lists.
+              </p>
+              <ConnectAniListButton variant="inline" />
+            </div>
+          ) : list.length === 0 ? (
+            <p className="py-8 text-center text-xs text-slate-400">
+              {activeTab === 'followers'
+                ? `${userName} has no followers yet.`
+                : `${userName} isn't following anyone yet.`}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {list.map((u) => (
+                <li key={u.id}>
+                  <Link
+                    href={`/user/${encodeURIComponent(u.name)}`}
+                    onClick={onClose}
+                    className="glass-card flex items-center gap-3 rounded-2xl p-2.5 transition-colors hover:border-primary/45"
+                  >
+                    <img
+                      src={u.avatar.medium || '/placeholder.svg'}
+                      alt={u.name}
+                      className="size-9 rounded-full border border-primary/35 bg-muted object-cover"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-white">
+                      {u.name}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-[#0E1015]/80 px-2.5 py-1 text-[10px] font-bold text-primary">
+                      Profile
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
