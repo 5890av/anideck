@@ -46,23 +46,26 @@ jobs:
             -keysize 2048 \
             -validity 10000
 
-      - name: Scaffold Android TWA Project
+      - name: Generate Launcher Icon PNG
         run: |
-          mkdir -p android-twa/app/src/main/res/values
           mkdir -p android-twa/app/src/main/res/drawable
-          mkdir -p android-twa/app/src/main/res/mipmap-anydpi-v26
-
-          # Download app icon from deployed site (fallback to solid coral PNG if unavailable)
-          curl -fsSL "https://anideck-seven.vercel.app/apple-icon.png" -o android-twa/app/src/main/res/drawable/ic_launcher.png || \
-            python3 -c '
+          if ! curl -fsSL "https://anideck-seven.vercel.app/apple-icon.png" -o android-twa/app/src/main/res/drawable/ic_launcher.png; then
+            python3 - << 'PYEOF'
           import zlib, struct
           w, h = 192, 192
           raw = b"".join(b"\x00" + b"\xff\x6b\x4a\xff" * w for _ in range(h))
           def chunk(t, d):
               return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
           png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
-          open("android-twa/app/src/main/res/drawable/ic_launcher.png", "wb").write(png)
-          '
+          with open("android-twa/app/src/main/res/drawable/ic_launcher.png", "wb") as f:
+              f.write(png)
+          PYEOF
+          fi
+
+      - name: Scaffold Android TWA Project
+        run: |
+          mkdir -p android-twa/app/src/main/res/values
+          mkdir -p android-twa/app/src/main/res/xml
 
           cat << 'EOF' > android-twa/settings.gradle
           pluginManagement {
@@ -170,6 +173,13 @@ jobs:
           </resources>
           EOF
 
+          cat << 'EOF' > android-twa/app/src/main/res/xml/filepaths.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <paths>
+              <files-path name="shared" path="shared/" />
+          </paths>
+          EOF
+
           cat << 'EOF' > android-twa/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -238,14 +248,6 @@ jobs:
                   </provider>
               </application>
           </manifest>
-          EOF
-
-          mkdir -p android-twa/app/src/main/res/xml
-          cat << 'EOF' > android-twa/app/src/main/res/xml/filepaths.xml
-          <?xml version="1.0" encoding="utf-8"?>
-          <paths>
-              <files-path name="shared" path="shared/" />
-          </paths>
           EOF
 
       - name: Build Signed APK with Gradle
