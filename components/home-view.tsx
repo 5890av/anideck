@@ -53,6 +53,58 @@ const STUDIO_TOOLS = [
   },
 ] as const
 
+type JikanAnimeEntry = {
+  images?: {
+    webp?: { large_image_url?: string; image_url?: string }
+    jpg?: { large_image_url?: string; image_url?: string }
+  }
+  trailer?: {
+    images?: {
+      maximum_image_url?: string
+      large_image_url?: string
+    }
+  }
+}
+
+async function fetchMalBackdrop(title: string, idMal?: number | null): Promise<{ url: string; isWide: boolean } | null> {
+  try {
+    let entry: JikanAnimeEntry | undefined
+
+    if (idMal) {
+      const res = await fetch(`https://api.jikan.moe/v4/anime/${idMal}`)
+      if (res.ok) {
+        const json = await res.json()
+        entry = json?.data
+      }
+    }
+
+    if (!entry && title) {
+      const res = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&limit=1`)
+      if (res.ok) {
+        const json = await res.json()
+        entry = json?.data?.[0]
+      }
+    }
+
+    if (!entry) return null
+
+    const wideTrailer = entry.trailer?.images?.maximum_image_url || entry.trailer?.images?.large_image_url
+    if (wideTrailer) {
+      return { url: wideTrailer, isWide: true }
+    }
+
+    const poster =
+      entry.images?.webp?.large_image_url ||
+      entry.images?.jpg?.large_image_url ||
+      entry.images?.webp?.image_url ||
+      entry.images?.jpg?.image_url
+
+    return poster ? { url: poster, isWide: false } : null
+  } catch {
+    return null
+  }
+}
+
 export function HomeView() {
   const router = useRouter()
   const pathname = usePathname()
@@ -79,6 +131,8 @@ export function HomeView() {
 
   const featuredList = (home.data?.trending.media ?? []).slice(0, 6)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [malBackdrops, setMalBackdrops] = useState<Record<number, { url: string; isWide: boolean }>>({})
+  const [failedBannerIds, setFailedBannerIds] = useState<Record<number, boolean>>({})
 
   useEffect(() => {
     if (featuredList.length <= 1 || genre) return
@@ -91,6 +145,27 @@ export function HomeView() {
   const safeIndex = featuredList.length > 0 ? activeIndex % featuredList.length : 0
   const spotlight = featuredList[safeIndex]
   const inWatchlist = spotlight ? watchlist.some((w) => w.id === spotlight.id) : false
+
+  // Fetch MyAnimeList (Jikan) artwork whenever AniList has no bannerImage or it fails to load
+  useEffect(() => {
+    if (!spotlight) return
+    const hasAniListBanner = Boolean(spotlight.bannerImage) && !failedBannerIds[spotlight.id]
+    if (hasAniListBanner || malBackdrops[spotlight.id]) return
+
+    let cancelled = false
+    const titleQuery = spotlight.title.romaji || spotlight.title.english || displayTitle(spotlight.title)
+    const idMal = (spotlight as MediaCard & { idMal?: number | null }).idMal
+
+    fetchMalBackdrop(titleQuery, idMal).then((result) => {
+      if (!cancelled && result) {
+        setMalBackdrops((prev) => ({ ...prev, [spotlight.id]: result }))
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [spotlight, failedBannerIds, malBackdrops])
 
   const selectGenre = (g: string | null) => {
     router.replace(g ? `${pathname}?genre=${encodeURIComponent(g)}` : pathname, { scroll: false })
@@ -116,6 +191,12 @@ export function HomeView() {
 
   const airingList = home.data?.airing.media ?? []
 
+  // Determine best hero image source: AniList Banner -> MAL Trailer/Cover -> AniList Cover
+  const anilistBanner = spotlight && !failedBannerIds[spotlight.id] ? spotlight.bannerImage : null
+  const malFallback = spotlight ? malBackdrops[spotlight.id] : undefined
+  const heroBgUrl = anilistBanner || malFallback?.url || spotlight?.coverImage.large || spotlight?.coverImage.medium || ''
+  const isWideHero = Boolean(anilistBanner || malFallback?.isWide)
+
   return (
     <div className="flex flex-col gap-8">
       {/* Editorial Hero Banner + 2x3 Bento Stats Grid */}
@@ -125,16 +206,22 @@ export function HomeView() {
             <div className="h-80 animate-pulse rounded-3xl border border-white/10 bg-card md:h-96" />
           ) : spotlight ? (
             <div className="glass-panel relative overflow-hidden rounded-3xl">
-              {/* Oversized Widescreen Backdrop Artwork */}
-              {(spotlight.bannerImage || spotlight.coverImage.large) && (
+              {/* Oversized Widescreen Backdrop Artwork (AniList + MyAnimeList Fallback) */}
+              {heroBgUrl && (
                 <img
-                  key={`hero-bg-${spotlight.id}`}
-                  src={spotlight.bannerImage || spotlight.coverImage.large || ''}
+                  key={`hero-bg-${spotlight.id}-${heroBgUrl}`}
+                  src={heroBgUrl}
                   alt=""
                   aria-hidden="true"
+                  referrerPolicy="no-referrer"
+                  onError={() => {
+                    if (spotlight.bannerImage && !failedBannerIds[spotlight.id]) {
+                      setFailedBannerIds((prev) => ({ ...prev, [spotlight.id]: true }))
+                    }
+                  }}
                   className={cn(
                     'pointer-events-none absolute inset-0 size-full object-cover transition-all duration-700',
-                    spotlight.bannerImage ? 'opacity-55' : 'scale-110 opacity-35 blur-2xl',
+                    isWideHero ? 'opacity-65' : 'object-top opacity-50',
                   )}
                 />
               )}
@@ -142,7 +229,7 @@ export function HomeView() {
               {/* Editorial Vignette Overlay */}
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0E1015] via-[#0E1015]/65 to-[#0E1015]/25 lg:bg-gradient-to-r lg:from-[#0E1015]/95 lg:via-[#0E1015]/65 lg:to-[#0E1015]/40"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0E1015] via-[#0E1015]/60 to-[#0E1015]/15 lg:bg-gradient-to-r lg:from-[#0E1015]/95 lg:via-[#0E1015]/60 lg:to-[#0E1015]/30"
               />
 
               <div
@@ -247,7 +334,7 @@ export function HomeView() {
                   </div>
                 </div>
 
-                {/* Right 2x3 Bento Stats Grid (Matching Editorial Gallery Mockup) */}
+                {/* Right 2x3 Bento Stats Grid */}
                 <div className="bento-stat grid grid-cols-2 overflow-hidden rounded-2xl">
                   <div className="border-b border-r border-white/10 p-3.5">
                     <p className="text-base font-extrabold text-white">
@@ -438,7 +525,7 @@ export function HomeView() {
         </section>
       ) : (
         <>
-          {/* Horizontal "CURRENTLY AIRING" Landscape Spotlight Row (Matching Editorial Gallery Mockup) */}
+          {/* Horizontal "CURRENTLY AIRING" Landscape Spotlight Row */}
           <section>
             <SectionHeading title="Currently airing">
               <Link href="/calendar" className="flex items-center gap-1 text-xs font-bold text-primary hover:underline">
@@ -469,6 +556,7 @@ export function HomeView() {
                             src={cardBg}
                             alt=""
                             aria-hidden="true"
+                            referrerPolicy="no-referrer"
                             className="pointer-events-none absolute inset-0 size-full object-cover opacity-55 transition-transform duration-500 group-hover:scale-105"
                           />
                         )}
