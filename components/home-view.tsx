@@ -198,12 +198,12 @@ export function HomeView() {
   const isWideHero = Boolean(anilistBanner || malFallback?.isWide)
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Editorial Hero Banner + 2x3 Bento Stats Grid */}
-      <section className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6 md:gap-8">
+      {/* Editorial Hero Banner + Compact Mobile / 2x3 Desktop Bento Stats Grid */}
+      <section className="flex flex-col gap-3 md:gap-4">
         {!genre && (
           home.isLoading && !spotlight ? (
-            <div className="h-80 animate-pulse rounded-3xl border border-white/10 bg-card md:h-96" />
+            <div className="h-64 animate-pulse rounded-3xl border border-white/10 bg-card md:h-96" />
           ) : spotlight ? (
             <div className="glass-panel relative overflow-hidden rounded-3xl">
               {/* Oversized Widescreen Backdrop Artwork (Consistent Brightness) */}
@@ -234,26 +234,29 @@ export function HomeView() {
 
               <div
                 key={`hero-content-${spotlight.id}`}
-                className="relative grid gap-6 p-6 animate-in fade-in duration-500 md:p-8 lg:grid-cols-[1fr_320px] lg:items-end"
+                className="relative grid gap-3.5 p-4 animate-in fade-in duration-500 sm:p-6 md:gap-6 md:p-8 lg:grid-cols-[1fr_320px] lg:items-end"
               >
                 {/* Left Editorial Title & Action Pills */}
-                <div className="flex min-w-0 flex-col gap-3.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-extrabold active-pill">
-                      <Flame className="size-3.5" aria-hidden="true" /> #{safeIndex + 1} Editorial Pick
+                <div className="flex min-w-0 flex-col gap-2 sm:gap-3.5">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold active-pill sm:px-3 sm:py-1 sm:text-xs">
+                      <Flame className="size-3 sm:size-3.5" aria-hidden="true" /> #{safeIndex + 1} Pick
                     </span>
                     {spotlight.nextAiringEpisode && (
-                      <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-extrabold amber-pill">
-                        <Tv className="size-3.5" aria-hidden="true" />
+                      <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold amber-pill sm:px-3 sm:py-1 sm:text-xs">
+                        <Tv className="size-3 sm:size-3.5" aria-hidden="true" />
                         Ep {spotlight.nextAiringEpisode.episode} Airing
                       </span>
                     )}
-                    {spotlight.genres.slice(0, 2).map((g) => (
+                    {spotlight.genres.slice(0, 2).map((g, idx) => (
                       <button
                         key={g}
                         type="button"
                         onClick={() => selectGenre(g)}
-                        className="rounded-full border border-white/15 bg-black/45 px-3 py-1 text-xs font-semibold text-white/90 backdrop-blur-md transition-colors hover:border-primary hover:text-primary"
+                        className={cn(
+                          'rounded-full border border-white/15 bg-black/45 px-2.5 py-0.5 text-[11px] font-semibold text-white/90 backdrop-blur-md transition-colors hover:border-primary hover:text-primary sm:px-3 sm:py-1 sm:text-xs',
+                          idx > 0 && 'hidden sm:inline-flex',
+                        )}
                       >
                         {g}
                       </button>
@@ -261,7 +264,7 @@ export function HomeView() {
                   </div>
 
                   <Link href={`/anime/${spotlight.id}`} className="group w-fit">
-                    <h1 className="line-clamp-2 text-balance text-3xl font-black tracking-tight text-white drop-shadow-sm transition-colors group-hover:text-primary sm:text-4xl md:text-5xl">
+                    <h1 className="line-clamp-2 text-balance text-2xl font-black tracking-tight text-white drop-shadow-sm transition-colors group-hover:text-primary sm:text-4xl md:text-5xl">
                       {displayTitle(spotlight.title)}
                     </h1>
                   </Link>
@@ -277,21 +280,22 @@ export function HomeView() {
                       .join(' • ')}
                   </p>
 
-                  {/* Sunset Coral & Warm Amber Pill Buttons */}
-                  <div className="mt-1 flex flex-wrap items-center gap-3">
+                  {/* Sunset Coral & Warm Amber Pill Buttons + Inline Prev/Next */}
+                  <div className="mt-0.5 flex items-center gap-2 sm:mt-1 sm:flex-wrap sm:gap-3">
                     <Link
                       href={`/anime/${spotlight.id}`}
-                      className="inline-flex h-10 items-center gap-2 rounded-full px-5 text-xs font-extrabold active-pill transition-transform hover:scale-[1.02]"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-extrabold active-pill transition-transform hover:scale-[1.02] sm:h-10 sm:gap-2 sm:px-5"
                     >
                       <Play className="size-3.5 fill-current" aria-hidden="true" />
-                      Explore &amp; Themes
+                      <span>Explore</span>
+                      <span className="hidden sm:inline">&amp; Themes</span>
                     </Link>
 
                     <button
                       type="button"
                       onClick={handleHeroWatchlistToggle}
                       className={cn(
-                        'inline-flex h-10 items-center gap-1.5 rounded-full px-5 text-xs font-extrabold transition-transform hover:scale-[1.02]',
+                        'inline-flex h-9 items-center gap-1 rounded-full px-3.5 text-xs font-extrabold transition-transform hover:scale-[1.02] sm:h-10 sm:gap-1.5 sm:px-5',
                         inWatchlist
                           ? 'border border-white/20 bg-white/15 text-white backdrop-blur-md'
                           : 'amber-pill',
@@ -299,7 +303,9 @@ export function HomeView() {
                     >
                       {inWatchlist ? (
                         <>
-                          <Check className="size-3.5" aria-hidden="true" /> In Watchlist
+                          <Check className="size-3.5" aria-hidden="true" />
+                          <span>Saved</span>
+                          <span className="hidden sm:inline">in Watchlist</span>
                         </>
                       ) : (
                         <>
@@ -310,14 +316,14 @@ export function HomeView() {
 
                     {/* Carousel Prev / Next Controls */}
                     {featuredList.length > 1 && (
-                      <div className="ml-auto flex items-center gap-1.5 sm:ml-2">
+                      <div className="ml-auto flex items-center gap-1 sm:ml-2 sm:gap-1.5">
                         <button
                           type="button"
                           onClick={() =>
                             setActiveIndex((prev) => (prev - 1 + featuredList.length) % featuredList.length)
                           }
                           aria-label="Previous featured anime"
-                          className="flex size-9 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-md transition-colors hover:border-primary hover:text-primary"
+                          className="flex size-8 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-md transition-colors hover:border-primary hover:text-primary sm:size-9"
                         >
                           <ChevronLeft className="size-4" />
                         </button>
@@ -325,7 +331,7 @@ export function HomeView() {
                           type="button"
                           onClick={() => setActiveIndex((prev) => (prev + 1) % featuredList.length)}
                           aria-label="Next featured anime"
-                          className="flex size-9 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-md transition-colors hover:border-primary hover:text-primary"
+                          className="flex size-8 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white backdrop-blur-md transition-colors hover:border-primary hover:text-primary sm:size-9"
                         >
                           <ChevronRight className="size-4" />
                         </button>
@@ -334,50 +340,50 @@ export function HomeView() {
                   </div>
                 </div>
 
-                {/* Right 2x3 Bento Stats Grid */}
-                <div className="bento-stat grid grid-cols-2 overflow-hidden rounded-2xl">
-                  <div className="border-b border-r border-white/10 p-3.5">
-                    <p className="text-base font-extrabold text-white">
+                {/* Compact 3-Column Bento Stats on Mobile / 2x3 on Desktop */}
+                <div className="bento-stat grid grid-cols-3 overflow-hidden rounded-2xl lg:grid-cols-2">
+                  <div className="border-b border-r border-white/10 px-2.5 py-2 sm:p-3.5">
+                    <p className="text-xs font-extrabold text-white sm:text-base">
                       {spotlight.averageScore ? `${spotlight.averageScore}%` : '—'}
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">Community Score</p>
+                    <p className="truncate text-[10px] font-medium text-slate-400 sm:text-[11px]">Score</p>
                   </div>
-                  <div className="border-b border-white/10 p-3.5">
-                    <p className="text-base font-extrabold text-white">
+                  <div className="border-b border-r border-white/10 px-2.5 py-2 sm:p-3.5 lg:border-r-0">
+                    <p className="text-xs font-extrabold text-white sm:text-base">
                       {spotlight.episodes ? `${spotlight.episodes} Eps` : 'Ongoing'}
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">Total Episodes</p>
+                    <p className="truncate text-[10px] font-medium text-slate-400 sm:text-[11px]">Episodes</p>
                   </div>
-                  <div className="border-b border-r border-white/10 p-3.5">
-                    <p className="text-base font-extrabold text-upcoming">
+                  <div className="border-b border-white/10 px-2.5 py-2 sm:p-3.5 lg:border-r">
+                    <p className="truncate text-xs font-extrabold text-upcoming sm:text-base">
                       {spotlight.popularity ? spotlight.popularity.toLocaleString() : 'Top'}
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">Active Fans</p>
+                    <p className="truncate text-[10px] font-medium text-slate-400 sm:text-[11px]">Fans</p>
                   </div>
-                  <div className="border-b border-white/10 p-3.5">
-                    <p className="text-base font-extrabold text-white">
+                  <div className="border-r border-white/10 px-2.5 py-2 sm:p-3.5 lg:border-b lg:border-r-0">
+                    <p className="text-xs font-extrabold text-white sm:text-base">
                       {formatEnum(spotlight.format) || 'TV'}
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">Release Format</p>
+                    <p className="truncate text-[10px] font-medium text-slate-400 sm:text-[11px]">Format</p>
                   </div>
-                  <div className="border-r border-white/10 p-3.5">
-                    <p className="truncate text-sm font-extrabold text-primary">
+                  <div className="border-r border-white/10 px-2.5 py-2 sm:p-3.5">
+                    <p className="truncate text-xs font-extrabold text-primary sm:text-sm">
                       {spotlight.studios?.nodes?.[0]?.name || spotlight.seasonYear || 'Featured'}
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">Animation Studio</p>
+                    <p className="truncate text-[10px] font-medium text-slate-400 sm:text-[11px]">Studio</p>
                   </div>
-                  <div className="p-3.5">
-                    <p className="text-sm font-extrabold text-white">
+                  <div className="px-2.5 py-2 sm:p-3.5">
+                    <p className="truncate text-xs font-extrabold text-white sm:text-sm">
                       #{safeIndex + 1} Trending
                     </p>
-                    <p className="text-[11px] font-medium text-slate-400">Global Chart</p>
+                    <p className="truncate text-[10px] font-medium text-slate-400 sm:text-[11px]">Chart</p>
                   </div>
                 </div>
               </div>
 
               {/* Bottom Slide Progress Bars */}
               {featuredList.length > 1 && (
-                <div className="relative flex items-center justify-center gap-2 pb-4">
+                <div className="relative flex items-center justify-center gap-2 pb-3 sm:pb-4">
                   {featuredList.map((item, idx) => (
                     <button
                       key={item.id}
@@ -386,7 +392,7 @@ export function HomeView() {
                       aria-label={`Show slide ${idx + 1}`}
                       className={cn(
                         'h-1.5 rounded-full transition-all duration-300',
-                        idx === safeIndex ? 'w-8 active-pill' : 'w-2 bg-white/25 hover:bg-white/50',
+                        idx === safeIndex ? 'w-7 active-pill sm:w-8' : 'w-2 bg-white/25 hover:bg-white/50',
                       )}
                     />
                   ))}
@@ -397,7 +403,7 @@ export function HomeView() {
         )}
 
         {/* Rounded Pill Filters & Studio Quick-Launch Pills */}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2.5 md:gap-3">
           <GenreBar selected={genre} onSelect={selectGenre} />
 
           {!genre && (
@@ -408,7 +414,7 @@ export function HomeView() {
                   <Link
                     key={tool.href}
                     href={tool.href}
-                    className="glass-card inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-xs font-bold text-slate-200 hover:text-primary"
+                    className="glass-card inline-flex shrink-0 items-center gap-2 rounded-full px-3.5 py-1.5 text-xs font-bold text-slate-200 hover:text-primary sm:px-4 sm:py-2"
                   >
                     <Icon className="size-3.5 text-primary" aria-hidden="true" />
                     <span>{tool.title}</span>
