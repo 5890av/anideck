@@ -42,6 +42,11 @@ const ACTIVITY_WITH_REPLIES_QUERY = `
           likeCount
           replyCount
           isLiked
+          likes {
+            id
+            name
+            avatar { medium }
+          }
           user { id name avatar { medium } }
           media { id title { romaji english } coverImage { medium } format }
         }
@@ -63,6 +68,11 @@ const FOLLOWING_ACTIVITY_QUERY = `
           likeCount
           replyCount
           isLiked
+          likes {
+            id
+            name
+            avatar { medium }
+          }
           user { id name avatar { medium } }
           media { id title { romaji english } coverImage { medium } format }
         }
@@ -114,11 +124,21 @@ const TOGGLE_LIKE_MUTATION = `
         id
         likeCount
         isLiked
+        likes {
+          id
+          name
+          avatar { medium }
+        }
       }
       ... on TextActivity {
         id
         likeCount
         isLiked
+        likes {
+          id
+          name
+          avatar { medium }
+        }
       }
     }
   }
@@ -244,10 +264,17 @@ export function ActivityView() {
   )
 }
 
+type ActivityLiker = {
+  id: number
+  name: string
+  avatar: { medium: string | null }
+}
+
 type CommunityActivityItem = ListActivity & {
   likeCount?: number
   replyCount?: number
   isLiked?: boolean
+  likes?: ActivityLiker[]
 }
 
 type ActivityReplyItem = {
@@ -273,9 +300,14 @@ function SocialActivityFeed({
   onSwitchToCommunity?: () => void
 }) {
   const [token, setToken] = useState<string | null>(null)
+  const [syncNotice, setSyncNotice] = useState<string | null>(null)
 
   useEffect(() => {
-    const syncToken = () => setToken(getStoredAniListToken())
+    const syncToken = () => {
+      const current = getStoredAniListToken()
+      setToken(current)
+      if (current) setSyncNotice(null)
+    }
     syncToken()
     window.addEventListener('storage', syncToken)
     window.addEventListener('focus', syncToken)
@@ -299,11 +331,17 @@ function SocialActivityFeed({
     { refreshInterval: 60_000 },
   )
 
-  const { likedIds, toggleLocalLike } = useLocalLikes()
-  const [remoteOverrides, setRemoteOverrides] = useState<Record<number, { isLiked: boolean; likeCount: number }>>({})
+  const [remoteOverrides, setRemoteOverrides] = useState<
+    Record<number, { isLiked: boolean; likeCount: number; likes?: ActivityLiker[] }>
+  >({})
   const [replyCountOverrides, setReplyCountOverrides] = useState<Record<number, number>>({})
   const [pendingIds, setPendingIds] = useState<Record<number, boolean>>({})
   const [activeDrawerActivity, setActiveDrawerActivity] = useState<CommunityActivityItem | null>(null)
+  const [likesModalActivity, setLikesModalActivity] = useState<{
+    activity: CommunityActivityItem
+    likers: ActivityLiker[]
+    totalCount: number
+  } | null>(null)
 
   if (mode === 'following' && !token) {
     return (
@@ -329,31 +367,31 @@ function SocialActivityFeed({
   const handleToggleLike = async (activity: CommunityActivityItem) => {
     if (pendingIds[activity.id]) return
     const latestToken = getStoredAniListToken()
-    const baseCount = activity.likeCount ?? 0
-    const localKey = `community:${activity.id}`
 
     if (!latestToken) {
-      toggleLocalLike(localKey)
+      setToken(null)
+      setSyncNotice('Sync your AniList account first to like activity updates.')
       return
     }
 
+    setSyncNotice(null)
+    const baseCount = activity.likeCount ?? 0
     const currentLiked = remoteOverrides[activity.id]?.isLiked ?? Boolean(activity.isLiked)
     const currentCount = remoteOverrides[activity.id]?.likeCount ?? baseCount
+    const currentLikes = remoteOverrides[activity.id]?.likes ?? activity.likes
     const optimisticLiked = !currentLiked
     const optimisticCount = Math.max(0, currentCount + (optimisticLiked ? 1 : -1))
 
     setPendingIds((prev) => ({ ...prev, [activity.id]: true }))
     setRemoteOverrides((prev) => ({
       ...prev,
-      [activity.id]: { isLiked: optimisticLiked, likeCount: optimisticCount },
+      [activity.id]: { isLiked: optimisticLiked, likeCount: optimisticCount, likes: currentLikes },
     }))
 
     try {
-      const json = await anilist<{ ToggleLikeV2?: { isLiked: boolean; likeCount: number } }>(
-        TOGGLE_LIKE_MUTATION,
-        { id: activity.id },
-        latestToken,
-      )
+      const json = await anilist<{
+        ToggleLikeV2?: { isLiked: boolean; likeCount: number; likes?: ActivityLiker[] }
+      }>(TOGGLE_LIKE_MUTATION, { id: activity.id }, latestToken)
       const updated = json?.ToggleLikeV2
       if (updated && typeof updated.isLiked === 'boolean') {
         setRemoteOverrides((prev) => ({
@@ -361,13 +399,14 @@ function SocialActivityFeed({
           [activity.id]: {
             isLiked: updated.isLiked,
             likeCount: typeof updated.likeCount === 'number' ? updated.likeCount : optimisticCount,
+            likes: Array.isArray(updated.likes) ? updated.likes : currentLikes,
           },
         }))
       }
     } catch {
       setRemoteOverrides((prev) => ({
         ...prev,
-        [activity.id]: { isLiked: currentLiked, likeCount: currentCount },
+        [activity.id]: { isLiked: currentLiked, likeCount: currentCount, likes: currentLikes },
       }))
     } finally {
       setPendingIds((prev) => {
@@ -380,6 +419,26 @@ function SocialActivityFeed({
 
   return (
     <div className="flex flex-col gap-4">
+      {syncNotice && (
+        <div
+          role="status"
+          className="glass-panel flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#FFB84D]/40 bg-[#FFB84D]/10 px-4 py-3"
+        >
+          <p className="text-xs font-bold text-upcoming">{syncNotice}</p>
+          <div className="flex items-center gap-2">
+            <ConnectAniListButton variant="inline" />
+            <button
+              type="button"
+              onClick={() => setSyncNotice(null)}
+              aria-label="Dismiss notice"
+              className="flex size-7 items-center justify-center rounded-full border border-white/12 text-slate-300 hover:text-white"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400">
           <span className="size-2 rounded-full bg-airing animate-pulse" aria-hidden="true" />
@@ -424,11 +483,9 @@ function SocialActivityFeed({
         <ul className="grid gap-3 md:grid-cols-2">
           {items.map((a) => {
             const override = remoteOverrides[a.id]
-            const isLocalLiked = Boolean(likedIds[`community:${a.id}`])
-            const isLiked = override ? override.isLiked : Boolean(a.isLiked) || isLocalLiked
-            const displayCount = override
-              ? override.likeCount
-              : (a.likeCount ?? 0) + (!a.isLiked && isLocalLiked ? 1 : 0)
+            const isLiked = token ? (override ? override.isLiked : Boolean(a.isLiked)) : false
+            const displayCount = override ? override.likeCount : (a.likeCount ?? 0)
+            const likers = override?.likes ?? a.likes ?? []
             const replyCount = replyCountOverrides[a.id] ?? (a.replyCount ?? 0)
             const userHref = `/user/${encodeURIComponent(a.user!.name)}`
 
@@ -473,22 +530,61 @@ function SocialActivityFeed({
                       onClick={() => handleToggleLike(a)}
                       disabled={Boolean(pendingIds[a.id])}
                       aria-pressed={isLiked}
-                      aria-label={isLiked ? 'Unlike activity' : 'Like activity'}
-                      title={getStoredAniListToken() ? 'Like on AniList' : 'Like (saved locally)'}
+                      aria-label={token ? (isLiked ? 'Unlike activity' : 'Like activity') : 'Sync AniList to like'}
+                      title={token ? 'Like on AniList' : 'Sync AniList to like'}
                       className={cn(
                         'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold transition-all',
-                        isLiked
-                          ? 'active-pill'
-                          : 'border border-white/10 bg-[#0E1015]/75 text-slate-300 hover:border-primary/45 hover:text-white',
+                        !token
+                          ? 'border border-white/10 bg-[#0E1015]/60 text-slate-400 hover:border-[#FFB84D]/45 hover:text-upcoming'
+                          : isLiked
+                            ? 'active-pill'
+                            : 'border border-white/10 bg-[#0E1015]/75 text-slate-300 hover:border-primary/45 hover:text-white',
                       )}
                     >
                       <Heart className={cn('size-3', isLiked && 'fill-current')} aria-hidden="true" />
                       {displayCount > 0 && <span className="tabular-nums">{displayCount}</span>}
                     </button>
 
+                    {/* Liked By Avatars / People Who Liked Pill */}
+                    {displayCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setLikesModalActivity({
+                            activity: a,
+                            likers,
+                            totalCount: displayCount,
+                          })
+                        }
+                        aria-label={`See ${displayCount} people who liked this`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-[#0E1015]/75 px-2 py-0.5 text-[11px] font-bold text-slate-300 transition-colors hover:border-primary/45 hover:text-white"
+                      >
+                        {likers.length > 0 && (
+                          <span className="flex -space-x-1.5">
+                            {likers.slice(0, 3).map((liker) => (
+                              <img
+                                key={liker.id}
+                                src={liker.avatar.medium || '/placeholder.svg'}
+                                alt={liker.name}
+                                className="size-4 rounded-full border border-[#0E1015] bg-muted object-cover"
+                                loading="lazy"
+                              />
+                            ))}
+                          </span>
+                        )}
+                        <span className="max-w-[110px] truncate">
+                          {likers.length === 1
+                            ? likers[0].name
+                            : likers.length > 1
+                              ? `${likers[0].name} +${displayCount - 1}`
+                              : `${displayCount} ${displayCount === 1 ? 'like' : 'likes'}`}
+                        </span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
-                      onClick={() => setActiveDrawerActivity(a)}
+                      onClick={() => setActiveDrawerActivity({ ...a, likes: likers, likeCount: displayCount })}
                       aria-label="Open replies"
                       className={cn(
                         'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold transition-all',
@@ -522,6 +618,14 @@ function SocialActivityFeed({
         </ul>
       )}
 
+      {likesModalActivity && (
+        <LikedByModal
+          likers={likesModalActivity.likers}
+          totalCount={likesModalActivity.totalCount}
+          onClose={() => setLikesModalActivity(null)}
+        />
+      )}
+
       {activeDrawerActivity && (
         <ReplyDrawer
           activity={activeDrawerActivity}
@@ -531,6 +635,86 @@ function SocialActivityFeed({
           }
         />
       )}
+    </div>
+  )
+}
+
+function LikedByModal({
+  likers,
+  totalCount,
+  onClose,
+}: {
+  likers: ActivityLiker[]
+  totalCount: number
+  onClose: () => void
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Liked by"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-150"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-3xl border border-white/12 bg-[#0E1015] shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-white/10 bg-[#161922]/85 px-4 py-3.5">
+          <div className="flex items-center gap-2">
+            <Heart className="size-4 fill-primary text-primary" aria-hidden="true" />
+            <h2 className="text-sm font-extrabold text-white">Liked by ({totalCount})</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close likes list"
+            className="flex size-8 items-center justify-center rounded-full border border-white/12 bg-[#0E1015] text-slate-300 hover:text-white"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-3">
+          {likers.length === 0 ? (
+            <p className="py-8 text-center text-xs text-slate-400">
+              No public AniList likers loaded.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {likers.map((u) => (
+                <li key={u.id}>
+                  <Link
+                    href={`/user/${encodeURIComponent(u.name)}`}
+                    onClick={onClose}
+                    className="glass-card flex items-center gap-3 rounded-2xl p-2.5 transition-colors hover:border-primary/45"
+                  >
+                    <img
+                      src={u.avatar.medium || '/placeholder.svg'}
+                      alt={u.name}
+                      className="size-9 rounded-full border border-primary/35 bg-muted object-cover"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-xs font-extrabold text-white">
+                      {u.name}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-[#0E1015]/80 px-2.5 py-1 text-[10px] font-bold text-primary">
+                      Profile
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -554,6 +738,7 @@ function ReplyDrawer({
   )
 
   const replies = data?.Page.activityReplies ?? []
+  const likers = activity.likes ?? []
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -621,35 +806,63 @@ function ReplyDrawer({
 
         {/* Original Activity Context */}
         {activity.user && activity.media && (
-          <div className="flex items-center gap-3 border-b border-white/10 bg-[#161922]/50 p-4">
-            <Link href={`/user/${encodeURIComponent(activity.user.name)}`} onClick={onClose} className="shrink-0">
-              <img
-                src={activity.user.avatar.medium || '/placeholder.svg'}
-                alt={activity.user.name}
-                className="size-10 rounded-full border border-primary/35 bg-muted object-cover"
-              />
-            </Link>
-            <div className="min-w-0 flex-1 text-xs leading-relaxed">
-              <Link
-                href={`/user/${encodeURIComponent(activity.user.name)}`}
-                onClick={onClose}
-                className="font-extrabold text-white hover:text-primary"
-              >
-                {activity.user.name}
-              </Link>{' '}
-              <span className="text-slate-400">
-                {capitalizeStatus(activity.status)}
-                {activity.progress ? ` ${activity.progress} of` : ''}
-              </span>{' '}
-              <Link
-                href={`/anime/${activity.media.id}`}
-                onClick={onClose}
-                className="font-bold text-primary hover:underline"
-              >
-                {displayTitle(activity.media.title)}
+          <div className="flex flex-col gap-3 border-b border-white/10 bg-[#161922]/50 p-4">
+            <div className="flex items-center gap-3">
+              <Link href={`/user/${encodeURIComponent(activity.user.name)}`} onClick={onClose} className="shrink-0">
+                <img
+                  src={activity.user.avatar.medium || '/placeholder.svg'}
+                  alt={activity.user.name}
+                  className="size-10 rounded-full border border-primary/35 bg-muted object-cover"
+                />
               </Link>
-              <p className="mt-0.5 text-[11px] text-slate-400">{timeAgo(activity.createdAt * 1000)}</p>
+              <div className="min-w-0 flex-1 text-xs leading-relaxed">
+                <Link
+                  href={`/user/${encodeURIComponent(activity.user.name)}`}
+                  onClick={onClose}
+                  className="font-extrabold text-white hover:text-primary"
+                >
+                  {activity.user.name}
+                </Link>{' '}
+                <span className="text-slate-400">
+                  {capitalizeStatus(activity.status)}
+                  {activity.progress ? ` ${activity.progress} of` : ''}
+                </span>{' '}
+                <Link
+                  href={`/anime/${activity.media.id}`}
+                  onClick={onClose}
+                  className="font-bold text-primary hover:underline"
+                >
+                  {displayTitle(activity.media.title)}
+                </Link>
+                <p className="mt-0.5 text-[11px] text-slate-400">{timeAgo(activity.createdAt * 1000)}</p>
+              </div>
             </div>
+
+            {/* Likers Strip Inside Drawer */}
+            {likers.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 rounded-2xl border border-white/10 bg-[#0E1015]/70 px-3 py-2">
+                <Heart className="size-3.5 shrink-0 fill-primary text-primary" aria-hidden="true" />
+                <span className="text-[11px] font-bold text-slate-400">Liked by:</span>
+                {likers.slice(0, 6).map((u) => (
+                  <Link
+                    key={u.id}
+                    href={`/user/${encodeURIComponent(u.name)}`}
+                    onClick={onClose}
+                    className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-[#161922] px-2 py-0.5 text-[11px] font-bold text-white hover:border-primary/45 hover:text-primary"
+                  >
+                    <img
+                      src={u.avatar.medium || '/placeholder.svg'}
+                      alt=""
+                      className="size-3.5 rounded-full object-cover"
+                    />
+                    {u.name}
+                  </Link>
+                ))}
+                {likers.length > 6 && (
+                  <span className="text-[11px] font-semibold text-slate-400">+{likers.length - 6} more</span>
+                )}
+              </div>
+            )}
           </div>
         )}
 
