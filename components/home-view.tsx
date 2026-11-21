@@ -206,7 +206,7 @@ export function HomeView() {
             <div className="h-80 animate-pulse rounded-3xl border border-white/10 bg-card md:h-96" />
           ) : spotlight ? (
             <div className="glass-panel relative overflow-hidden rounded-3xl">
-              {/* Oversized Widescreen Backdrop Artwork (AniList + MyAnimeList Fallback) */}
+              {/* Oversized Widescreen Backdrop Artwork (Consistent Brightness) */}
               {heroBgUrl && (
                 <img
                   key={`hero-bg-${spotlight.id}-${heroBgUrl}`}
@@ -220,8 +220,8 @@ export function HomeView() {
                     }
                   }}
                   className={cn(
-                    'pointer-events-none absolute inset-0 size-full object-cover transition-all duration-700',
-                    isWideHero ? 'opacity-65' : 'object-top opacity-50',
+                    'pointer-events-none absolute inset-0 size-full object-cover opacity-60 transition-transform duration-700',
+                    !isWideHero && 'object-top',
                   )}
                 />
               )}
@@ -229,7 +229,7 @@ export function HomeView() {
               {/* Editorial Vignette Overlay */}
               <div
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0E1015] via-[#0E1015]/60 to-[#0E1015]/15 lg:bg-gradient-to-r lg:from-[#0E1015]/95 lg:via-[#0E1015]/60 lg:to-[#0E1015]/30"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0E1015] via-[#0E1015]/55 to-[#0E1015]/25 lg:bg-gradient-to-r lg:from-[#0E1015]/90 lg:via-[#0E1015]/55 lg:to-[#0E1015]/35"
               />
 
               <div
