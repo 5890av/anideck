@@ -12,6 +12,10 @@ on:
 permissions:
   contents: write
 
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
@@ -26,13 +30,11 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android build-tools & platform
+      - name: Accept Android SDK licenses & ensure build-tools
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          SDKMGR="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Generate signing keystore
         run: |
